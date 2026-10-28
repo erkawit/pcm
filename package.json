@@ -1,0 +1,28 @@
+{
+  "name": "pcm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PlayCH Channel & Quotation Management (PCM) - Multi-tenant Quotation, Product Catalog & Signatory Approval Workflow",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "lucide-react": "^0.479.0",
+    "next": "15.2.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sweetalert2": "^11.26.25"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.12",
+    "@types/node": "^22.13.9",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "tailwindcss": "^4.0.12",
+    "typescript": "^5.8.2"
+  }
+}
