@@ -10,6 +10,12 @@ import {
   QuotationAuditLog,
   UserRole,
 } from '@/types/quotation';
+import {
+  fetchAllFromSupabase,
+  upsertQuotationToSupabase,
+  deleteQuotationFromSupabase,
+  isSupabaseConfigured,
+} from './supabase';
 
 // SweetAlert Professional Business Styled Alert Helpers
 export const showSuccessAlert = (title: string, text: string) => {
@@ -426,6 +432,8 @@ interface QuotationStoreContextType {
   deleteOrganization: (id: string) => Promise<boolean>;
 
   // System
+  isSupabaseActive: boolean;
+  reloadFromSupabase: () => Promise<void>;
   resetToDefaults: () => void;
 }
 
@@ -441,6 +449,23 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
   const [currentUserId, setCurrentUserId] = useState<string>('user-admin');
   const [currentOrgId, setCurrentOrgId] = useState<string>('org-playch');
   const [selectedQuotationId, setSelectedQuotationId] = useState<string | null>('quot-sample-01');
+  const [isSupabaseActive, setIsSupabaseActive] = useState<boolean>(false);
+
+  const reloadFromSupabase = async () => {
+    if (isSupabaseConfigured()) {
+      setIsSupabaseActive(true);
+      const data = await fetchAllFromSupabase();
+      if (data) {
+        if (data.organizations?.length) setOrganizations(data.organizations);
+        if (data.users?.length) setUsers(data.users);
+        if (data.products?.length) setProducts(data.products);
+        if (data.quotations?.length) setQuotations(data.quotations);
+        if (data.auditLogs?.length) setAuditLogs(data.auditLogs);
+      }
+    } else {
+      setIsSupabaseActive(false);
+    }
+  };
 
   // Load from LocalStorage
   useEffect(() => {
@@ -461,6 +486,7 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
         console.error('Error loading quotation store from localStorage:', e);
       }
     }
+    reloadFromSupabase();
   }, []);
 
   // Save to LocalStorage
@@ -595,11 +621,15 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     setSelectedQuotationId(newId);
     addAuditLog(newId, 'CREATED', `สร้างใบเสนอราคาใหม่ ${quotNum}`);
 
+    // Sync to Supabase if configured
+    upsertQuotationToSupabase(newQuotation);
+
     showSuccessAlert('สร้างใบเสนอราคาสำเร็จ!', `เลขที่เอกสาร ${quotNum} ถูกบันทึกเป็นแบบร่างแล้ว`);
     return newQuotation;
   };
 
   const updateQuotation = async (id: string, data: Partial<Quotation>) => {
+    let updatedObj: Quotation | null = null;
     setQuotations((prev) =>
       prev.map((q) => {
         if (q.id === id) {
@@ -608,11 +638,15 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
             ...data,
             updatedAt: new Date().toISOString(),
           };
+          updatedObj = updated;
           return updated;
         }
         return q;
       })
     );
+    if (updatedObj) {
+      upsertQuotationToSupabase(updatedObj);
+    }
     addAuditLog(id, 'UPDATED', 'แก้ไขข้อมูลใบเสนอราคา');
     showSuccessAlert('บันทึกสำเร็จ', 'อัปเดตข้อมูลใบเสนอราคาเรียบร้อย');
   };
@@ -632,6 +666,7 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
       if (selectedQuotationId === id) {
         setSelectedQuotationId(null);
       }
+      deleteQuotationFromSupabase(id);
       showSuccessAlert('ลบสำเร็จ', `เอกสาร ${target.quotationNumber} ถูกลบออกจากระบบแล้ว`);
       return true;
     }
@@ -656,21 +691,18 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     );
 
     if (res.isConfirmed) {
+      const updated = {
+        ...target,
+        status: 'pending_approval' as const,
+        signatoryUserId: signatory.id,
+        signatoryName: signatory.fullName,
+        signatoryPosition: signatory.position,
+        updatedAt: new Date().toISOString(),
+      };
       setQuotations((prev) =>
-        prev.map((q) => {
-          if (q.id === quotationId) {
-            return {
-              ...q,
-              status: 'pending_approval',
-              signatoryUserId: signatory.id,
-              signatoryName: signatory.fullName,
-              signatoryPosition: signatory.position,
-              updatedAt: new Date().toISOString(),
-            };
-          }
-          return q;
-        })
+        prev.map((q) => (q.id === quotationId ? updated : q))
       );
+      upsertQuotationToSupabase(updated);
       addAuditLog(
         quotationId,
         'SUBMITTED_FOR_APPROVAL',
@@ -715,23 +747,20 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     );
 
     if (res.isConfirmed) {
+      const updated = {
+        ...target,
+        status: 'approved' as const,
+        signatoryUserId: currentUser.id,
+        signatoryName: currentUser.fullName,
+        signatoryPosition: currentUser.position,
+        signatureDataUrl: sigUrl,
+        signedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
       setQuotations((prev) =>
-        prev.map((q) => {
-          if (q.id === quotationId) {
-            return {
-              ...q,
-              status: 'approved',
-              signatoryUserId: currentUser.id,
-              signatoryName: currentUser.fullName,
-              signatoryPosition: currentUser.position,
-              signatureDataUrl: sigUrl,
-              signedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-          }
-          return q;
-        })
+        prev.map((q) => (q.id === quotationId ? updated : q))
       );
+      upsertQuotationToSupabase(updated);
       addAuditLog(
         quotationId,
         'APPROVED',
@@ -783,19 +812,16 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     });
 
     if (isConfirmed && text) {
+      const updated = {
+        ...target,
+        status: 'rejected' as const,
+        rejectionReason: text,
+        updatedAt: new Date().toISOString(),
+      };
       setQuotations((prev) =>
-        prev.map((q) => {
-          if (q.id === quotationId) {
-            return {
-              ...q,
-              status: 'rejected',
-              rejectionReason: text,
-              updatedAt: new Date().toISOString(),
-            };
-          }
-          return q;
-        })
+        prev.map((q) => (q.id === quotationId ? updated : q))
       );
+      upsertQuotationToSupabase(updated);
       addAuditLog(quotationId, 'REJECTED', `ส่งกลับแก้ไข: ${text}`);
 
       showSuccessAlert('ส่งกลับแก้ไขเรียบร้อย', 'สถานะเอกสารถูกเปลี่ยนเป็นส่งกลับแก้ไข และแจ้งบุคลากรแล้ว');
@@ -989,6 +1015,8 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
         createOrganization,
         updateOrganization,
         deleteOrganization,
+        isSupabaseActive,
+        reloadFromSupabase,
         resetToDefaults,
       }}
     >

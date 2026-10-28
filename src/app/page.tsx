@@ -27,6 +27,7 @@ import {
   ChevronRight,
   TrendingUp,
   CreditCard,
+  Database,
 } from 'lucide-react';
 import {
   useQuotationStore,
@@ -39,6 +40,7 @@ import ProductManagementModal from '@/components/quotation/ProductManagementModa
 import UserManagementModal from '@/components/quotation/UserManagementModal';
 import OrganizationManagementModal from '@/components/quotation/OrganizationManagementModal';
 import AuditLogModal from '@/components/quotation/AuditLogModal';
+import SupabaseConfigModal from '@/components/quotation/SupabaseConfigModal';
 
 type ActiveTab = 'QUOTATIONS' | 'PRODUCTS' | 'USERS' | 'ORGANIZATIONS';
 
@@ -57,6 +59,8 @@ function QuotationDashboardInner() {
     deleteQuotation,
     submitForApproval,
     resetToDefaults,
+    isSupabaseActive,
+    reloadFromSupabase,
   } = useQuotationStore();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('QUOTATIONS');
@@ -70,6 +74,7 @@ function QuotationDashboardInner() {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isOrgModalOpen, setIsOrgModalOpen] = useState(false);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [auditQuotationId, setAuditQuotationId] = useState<string | undefined>();
 
   // Filtered Quotations
@@ -185,6 +190,22 @@ function QuotationDashboardInner() {
                 ตั้งค่า
               </button>
             </div>
+
+            {/* Supabase Cloud DB Status & Config Button */}
+            <button
+              onClick={() => setIsSupabaseModalOpen(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition shadow-xs ${
+                isSupabaseActive
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                  : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'
+              }`}
+              title="ตั้งค่าเชื่อมต่อฐานข้อมูล Supabase"
+            >
+              <Database className={`w-3.5 h-3.5 ${isSupabaseActive ? 'text-emerald-600' : 'text-slate-400'}`} />
+              <span className="hidden md:inline">
+                {isSupabaseActive ? 'Supabase: เชื่อมต่อแล้ว' : 'Supabase: โหมด Local'}
+              </span>
+            </button>
 
             {/* Reset Data Button */}
             <button
@@ -542,6 +563,12 @@ function QuotationDashboardInner() {
         isOpen={isAuditModalOpen}
         onClose={() => setIsAuditModalOpen(false)}
         quotationId={auditQuotationId}
+      />
+
+      <SupabaseConfigModal
+        isOpen={isSupabaseModalOpen}
+        onClose={() => setIsSupabaseModalOpen(false)}
+        onConfigUpdated={() => reloadFromSupabase()}
       />
     </div>
   );

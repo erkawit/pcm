@@ -1,12 +1,12 @@
 -- ========================================================
--- QUOTATION MANAGEMENT SYSTEM FOR PLAYCH & MULTI-TENANT
+-- QUOTATION MANAGEMENT SYSTEM (PCM)
 -- Schema Definition for Supabase (PostgreSQL)
 -- ========================================================
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Organizations / Stores / Streamer Channels
+-- 1. Organizations / Stores / Channels
 CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     bank_account_name TEXT,
     bank_account_number TEXT,
     promptpay_id TEXT,
-    theme_preset TEXT DEFAULT 'gamer-cyan-ruby',
+    theme_preset TEXT DEFAULT 'classic-clean',
     is_default BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -72,8 +72,8 @@ CREATE TABLE IF NOT EXISTS quotations (
     customer_tax_id TEXT,
     customer_phone TEXT,
     customer_email TEXT,
-    issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    valid_until DATE,
+    issue_date TEXT NOT NULL,
+    valid_until TEXT,
     subtotal NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
     vat_percent NUMERIC(5, 2) NOT NULL DEFAULT 7.00,
     vat_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
@@ -84,8 +84,10 @@ CREATE TABLE IF NOT EXISTS quotations (
     payment_account_number TEXT,
     notes TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'sent')),
-    created_by_user_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
-    signatory_user_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
+    theme TEXT DEFAULT 'classic',
+    created_by_user_id TEXT,
+    created_by_name TEXT,
+    signatory_user_id TEXT,
     signatory_name TEXT,
     signatory_position TEXT,
     signature_data_url TEXT,
@@ -112,7 +114,7 @@ CREATE TABLE IF NOT EXISTS quotation_items (
 CREATE TABLE IF NOT EXISTS quotation_audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     quotation_id UUID NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
+    user_id TEXT,
     user_name TEXT NOT NULL,
     action TEXT NOT NULL,
     comment TEXT,
@@ -125,64 +127,20 @@ CREATE INDEX IF NOT EXISTS idx_quotations_status ON quotations(status);
 CREATE INDEX IF NOT EXISTS idx_quotation_items_qid ON quotation_items(quotation_id);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 
--- Seed Initial Default Organization (PlayCH - Game Creator Channel)
-INSERT INTO organizations (
-    name, legal_name, tagline, logo_url, tax_id, address, phone, email, website, 
-    bank_name, bank_account_name, bank_account_number, is_default, theme_preset
-) VALUES (
-    'PlayCH (Play Channel)',
-    'บริษัท เพลย์แชนแนล มีเดีย แอนด์ เกมมิ่ง กรุ๊ป จำกัด',
-    'Official Game Creator & Esports Broadcasting Hub',
-    '/logos/playch-logo.png',
-    '0105567089123',
-    '88/9 ถ.รัชดาภิเษก แขวงดินแดง เขตดินแดง กรุงเทพมหานคร 10400',
-    '082-999-7890, 02-123-4567',
-    'contact@playchannel.live',
-    'https://playch.tv',
-    'ธนาคารกสิกรไทย (KBANK)',
-    'บจก. เพลย์แชนแนล มีเดีย',
-    '789-2-34567-8',
-    true,
-    'gamer-cyan-ruby'
-) ON CONFLICT DO NOTHING;
+-- ========================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES FOR SUPABASE
+-- Allows public read & write using Supabase anon key
+-- ========================================================
+ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotation_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotation_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Seed Initial Signatory & Staff Users
-INSERT INTO app_users (
-    username, full_name, email, role, department, position, phone, can_sign, max_approval_amount, is_active
-) VALUES 
-(
-    'playch_admin',
-    'พงศธร เกียรติวานิช (Admin Master)',
-    'admin@playchannel.live',
-    'admin',
-    'Management & Executive',
-    'Chief Operating Officer (COO)',
-    '081-111-2222',
-    true,
-    2000000.00,
-    true
-),
-(
-    'signatory_manager',
-    'อดิตรา มอนด์บีนี',
-    'aditra.m@playchannel.live',
-    'signatory',
-    'Executive Board',
-    'ผู้จัดการทั่วไป (General Manager)',
-    '082-345-6789',
-    true,
-    1000000.00,
-    true
-),
-(
-    'staff_somchai',
-    'สมชาย พิชิตเกม',
-    'somchai.p@playchannel.live',
-    'staff',
-    'Content Production & Sales',
-    'เจ้าหน้าที่ประสานงานลูกค้าและมีเดีย',
-    '089-777-8888',
-    false,
-    0.00,
-    true
-) ON CONFLICT DO NOTHING;
+CREATE POLICY "Allow anon all on organizations" ON organizations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all on app_users" ON app_users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all on products" ON products FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all on quotations" ON quotations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all on quotation_items" ON quotation_items FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all on quotation_audit_logs" ON quotation_audit_logs FOR ALL USING (true) WITH CHECK (true);
