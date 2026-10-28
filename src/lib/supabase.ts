@@ -21,11 +21,19 @@ export function getSupabaseConfig(): { url: string; key: string } {
   };
 }
 
+// Singleton cache to avoid multiple GoTrueClient / Supabase client instances
+let _cachedClient: SupabaseClient | null = null;
+let _cachedUrl = '';
+let _cachedKey = '';
+
 export function saveSupabaseConfig(url: string, key: string) {
   if (typeof window !== 'undefined') {
     localStorage.setItem(STORAGE_URL_KEY, url.trim());
     localStorage.setItem(STORAGE_KEY_KEY, key.trim());
   }
+  _cachedClient = null;
+  _cachedUrl = '';
+  _cachedKey = '';
 }
 
 export function clearSupabaseConfig() {
@@ -33,6 +41,9 @@ export function clearSupabaseConfig() {
     localStorage.removeItem(STORAGE_URL_KEY);
     localStorage.removeItem(STORAGE_KEY_KEY);
   }
+  _cachedClient = null;
+  _cachedUrl = '';
+  _cachedKey = '';
 }
 
 export function isSupabaseConfigured(): boolean {
@@ -42,19 +53,36 @@ export function isSupabaseConfigured(): boolean {
 
 export function getSupabaseClient(): SupabaseClient | null {
   const { url, key } = getSupabaseConfig();
-  if (url && key && !url.includes('your-project-id') && url.startsWith('http')) {
-    try {
-      return createClient(url, key);
-    } catch {
-      return null;
-    }
+  if (!url || !key || url.includes('your-project-id') || !url.startsWith('http')) {
+    _cachedClient = null;
+    return null;
   }
-  return null;
+
+  // Return existing singleton instance if configuration has not changed
+  if (_cachedClient && _cachedUrl === url && _cachedKey === key) {
+    return _cachedClient;
+  }
+
+  try {
+    _cachedClient = createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+    _cachedUrl = url;
+    _cachedKey = key;
+    return _cachedClient;
+  } catch (err) {
+    console.warn('Failed to initialize Supabase client singleton:', err);
+    return null;
+  }
 }
 
-export const supabase: SupabaseClient | null = isSupabaseConfigured()
-  ? getSupabaseClient()
-  : null;
+export const supabase: SupabaseClient | null = typeof window !== 'undefined'
+  ? null
+  : getSupabaseClient();
 
 // ========================================================
 // SUPABASE DATABASE SYNC HELPERS
