@@ -42,6 +42,7 @@ import {
   adminUsersApi,
   quotationContentToRow,
   dbErrorMessage,
+  isValidUuid,
 } from './db';
 
 // SweetAlert Professional Business Styled Alert Helpers
@@ -242,11 +243,41 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoadingData(true);
       const data = await fetchAllData();
-      if (data.organizations.length > 0) {
-        setOrganizations(data.organizations);
-        if (!currentOrgId || currentOrgId === 'org-default') {
-          setCurrentOrgId(data.organizations[0].id);
+      let orgs = data.organizations;
+
+      // หากในฐานข้อมูลยังไม่มีข้อมูลองค์กรเลย ให้ลองสร้างองค์กรเริ่มต้นลง Supabase อัตโนมัติ
+      if (orgs.length === 0) {
+        try {
+          const seeded = await insertOrganization({
+            name: DEFAULT_ORG.name,
+            legalName: DEFAULT_ORG.legalName,
+            tagline: DEFAULT_ORG.tagline,
+            logoUrl: DEFAULT_ORG.logoUrl,
+            taxId: DEFAULT_ORG.taxId,
+            address: DEFAULT_ORG.address,
+            phone: DEFAULT_ORG.phone,
+            email: DEFAULT_ORG.email,
+            website: DEFAULT_ORG.website,
+            bankName: DEFAULT_ORG.bankName,
+            bankAccountName: DEFAULT_ORG.bankAccountName,
+            bankAccountNumber: DEFAULT_ORG.bankAccountNumber,
+            promptPayId: DEFAULT_ORG.promptPayId,
+            isDefault: true,
+          });
+          orgs = [seeded];
+        } catch {
+          // หากยังไม่มีสิทธิ์ (ไม่ใช่ admin) ให้ใช้ค่าเริ่มต้นในหน่วยความจำไปก่อน
         }
+      }
+
+      if (orgs.length > 0) {
+        setOrganizations(orgs);
+        setCurrentOrgId((prev) => {
+          if (!prev || prev === 'org-default' || !orgs.some((o) => o.id === prev)) {
+            return orgs[0].id;
+          }
+          return prev;
+        });
       }
       setUsers(data.users);
       setProducts(data.products);
@@ -258,7 +289,7 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoadingData(false);
     }
-  }, [currentOrgId]);
+  }, []);
 
   // Sync profile after login or auth state change
   const syncUserProfile = useCallback(async (userId: string) => {
@@ -436,7 +467,36 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
   const createQuotation = async (data: Partial<Quotation>): Promise<Quotation> => {
     try {
       const qNum = data.quotationNumber || (await nextQuotationNumber());
-      const newOrgId = data.orgId || currentOrg.id;
+      let newOrgId = data.orgId || currentOrg.id;
+
+      // ตรวจสอบความถูกต้องของ org_id (ต้องเป็น UUID จริงในฐานข้อมูล Supabase)
+      if (!isValidUuid(newOrgId)) {
+        const dbOrgs = await fetchOrganizations();
+        if (dbOrgs.length > 0) {
+          newOrgId = dbOrgs[0].id;
+          setCurrentOrgId(newOrgId);
+        } else {
+          const seeded = await insertOrganization({
+            name: DEFAULT_ORG.name,
+            legalName: DEFAULT_ORG.legalName,
+            tagline: DEFAULT_ORG.tagline,
+            logoUrl: DEFAULT_ORG.logoUrl,
+            taxId: DEFAULT_ORG.taxId,
+            address: DEFAULT_ORG.address,
+            phone: DEFAULT_ORG.phone,
+            email: DEFAULT_ORG.email,
+            website: DEFAULT_ORG.website,
+            bankName: DEFAULT_ORG.bankName,
+            bankAccountName: DEFAULT_ORG.bankAccountName,
+            bankAccountNumber: DEFAULT_ORG.bankAccountNumber,
+            promptPayId: DEFAULT_ORG.promptPayId,
+            isDefault: true,
+          });
+          newOrgId = seeded.id;
+          setCurrentOrgId(newOrgId);
+          setOrganizations([seeded]);
+        }
+      }
 
       const quotationRow = {
         quotation_number: qNum,
@@ -741,9 +801,35 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
 
   const updateOrganization = async (id: string, org: Partial<Organization>) => {
     try {
+      // หาก id เป็น mock placeholder 'org-default' หรือไม่ใช่ UUID ที่ถูกต้อง ให้บันทึกเป็นองค์กรใหม่ลงฐานข้อมูลจริง
+      if (id === 'org-default' || !isValidUuid(id)) {
+        const created = await insertOrganization({
+          name: org.name || DEFAULT_ORG.name,
+          legalName: org.legalName || DEFAULT_ORG.legalName,
+          tagline: org.tagline || DEFAULT_ORG.tagline,
+          logoUrl: org.logoUrl || DEFAULT_ORG.logoUrl,
+          taxId: org.taxId || DEFAULT_ORG.taxId,
+          address: org.address || DEFAULT_ORG.address,
+          phone: org.phone || DEFAULT_ORG.phone,
+          email: org.email || DEFAULT_ORG.email,
+          website: org.website || DEFAULT_ORG.website,
+          bankName: org.bankName || DEFAULT_ORG.bankName,
+          bankAccountName: org.bankAccountName || DEFAULT_ORG.bankAccountName,
+          bankAccountNumber: org.bankAccountNumber || DEFAULT_ORG.bankAccountNumber,
+          promptPayId: org.promptPayId || DEFAULT_ORG.promptPayId,
+          isDefault: true,
+        });
+        const updated = await fetchOrganizations();
+        setOrganizations(updated);
+        setCurrentOrgId(created.id);
+        showSuccessAlert('บันทึกสำเร็จ', 'สร้างข้อมูลองค์กรในระบบเรียบร้อย');
+        return;
+      }
+
       await updateOrganizationRow(id, org);
       const updated = await fetchOrganizations();
       setOrganizations(updated);
+      showSuccessAlert('บันทึกสำเร็จ', 'อัปเดตข้อมูลองค์กรเรียบร้อย');
     } catch (err: unknown) {
       const msg = dbErrorMessage(err);
       showErrorAlert('แก้ไของค์กรไม่สำเร็จ', msg);
@@ -766,6 +852,16 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
     if (!confirm.isConfirmed) return false;
 
     try {
+      if (id === 'org-default' || !isValidUuid(id)) {
+        const updated = organizations.filter((o) => o.id !== id);
+        setOrganizations(updated);
+        if (currentOrgId === id) {
+          setCurrentOrgId(updated[0]?.id || 'org-default');
+        }
+        showSuccessAlert('ลบองค์กรสำเร็จ', 'ลบข้อมูลองค์กรเรียบร้อย');
+        return true;
+      }
+
       await deleteOrganizationRow(id);
       const updated = await fetchOrganizations();
       setOrganizations(updated);

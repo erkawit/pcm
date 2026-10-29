@@ -388,3 +388,27 @@ CREATE POLICY logs_select ON quotation_audit_logs FOR SELECT TO authenticated
   USING (public.current_app_user_id() IS NOT NULL);
 CREATE POLICY logs_insert ON quotation_audit_logs FOR INSERT TO authenticated
   WITH CHECK (user_id = public.current_app_user_id());
+
+-- ---------------------------------------------------------------------
+-- 6) SEED INITIAL ORGANIZATION (สร้างข้อมูลองค์กรตั้งต้นหากยังไม่มี)
+-- ---------------------------------------------------------------------
+INSERT INTO organizations (
+    name, legal_name, tagline, logo_url, tax_id, address,
+    phone, email, website, bank_name, bank_account_name,
+    bank_account_number, is_default
+) 
+SELECT 
+    'PlayCH (Play Channel)',
+    'บริษัท เพลย์แชนแนล มีเดีย แอนด์ เกมมิ่ง กรุ๊ป จำกัด',
+    'Official Media & Production Hub',
+    '/logos/playch-logo.png',
+    '0105567089123',
+    '88/9 ถ.รัชดาภิเษก แขวงดินแดง เขตดินแดง กรุงเทพมหานคร 10400',
+    '082-999-7890, 02-123-4567',
+    'contact@playchannel.live',
+    'https://playchannel.live',
+    'ธนาคารกสิกรไทย (KBANK)',
+    'บจก. เพลย์แชนแนล มีเดีย',
+    '789-2-34567-8',
+    true
+WHERE NOT EXISTS (SELECT 1 FROM organizations);

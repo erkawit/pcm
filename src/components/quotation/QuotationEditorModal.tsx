@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Plus,
@@ -62,8 +62,29 @@ export default function QuotationEditorModal({
 
   const signatories = users.filter((u) => u.canSign && u.isActive);
 
-  // Initialize form state
+  // ควบคุมการตั้งค่าเริ่มต้น: ให้ทำงานครั้งเดียวเมื่อ "เปิดหน้าต่างขึ้นมาใหม่" เท่านั้น
+  // ป้องกันการรีเซ็ตข้อมูลที่ผู้ใช้กำลังพิมพ์อยู่เด็ดขาด แม้จะมีการ Re-render หรือดึงข้อมูลใหม่
+  const prevOpenRef = useRef(false);
+  const prevQuotationIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
+    if (!isOpen) {
+      prevOpenRef.current = false;
+      return;
+    }
+
+    const currentEditId = quotationToEdit?.id || null;
+    const isFirstTimeOpen = !prevOpenRef.current;
+    const isTargetQuotationChanged = prevQuotationIdRef.current !== currentEditId;
+
+    // ถ้าเปิดอยู่แล้ว และเอกสารที่แก้ไขไม่ได้เปลี่ยน ห้ามรีเซ็ตข้อมูลใดๆ
+    if (!isFirstTimeOpen && !isTargetQuotationChanged) {
+      return;
+    }
+
+    prevOpenRef.current = true;
+    prevQuotationIdRef.current = currentEditId;
+
     if (quotationToEdit) {
       setOrgId(quotationToEdit.orgId);
       setQuotationNumber(quotationToEdit.quotationNumber);
@@ -118,7 +139,7 @@ export default function QuotationEditorModal({
       setPaymentAccountName(currentOrg.bankAccountName);
       setPaymentAccountNumber(currentOrg.bankAccountNumber);
     }
-  }, [quotationToEdit, isOpen, currentOrg]);
+  }, [isOpen, quotationToEdit, currentOrg, signatories]);
 
   // When changing organization, update bank details default
   const handleOrgChange = (newOrgId: string) => {

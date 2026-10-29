@@ -28,6 +28,11 @@ function check<T>(res: { data: T | null; error: unknown }): T {
   return res.data as T;
 }
 
+export function isValidUuid(id?: string | null): boolean {
+  if (!id) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
 /** แปลง error จาก Supabase/PostgREST ให้เป็นข้อความภาษาไทยที่อ่านเข้าใจ */
 export function dbErrorMessage(err: unknown): string {
   const e = err as { code?: string; message?: string } | null;
@@ -38,6 +43,8 @@ export function dbErrorMessage(err: unknown): string {
   if (e.code === '42501' || /row-level security/i.test(msg)) return 'คุณไม่มีสิทธิ์ดำเนินการนี้';
   if (e.code === '42P01' || /does not exist/i.test(msg))
     return 'ไม่พบตารางในฐานข้อมูล กรุณารันไฟล์ supabase/schema.sql ใน Supabase SQL Editor';
+  if (e.code === '22P02' || /invalid input syntax for type uuid/i.test(msg))
+    return 'รหัสข้อมูลไม่ถูกต้อง (UUID) หรือยังไม่มีข้อมูลองค์กรที่บันทึกลงฐานข้อมูลจริง';
   if (/Failed to fetch/i.test(msg)) return 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตหรือค่า Supabase URL';
   return msg || 'เกิดข้อผิดพลาด';
 }
@@ -137,7 +144,7 @@ export function toProduct(r: Row): ProductItem {
 
 export function productToRow(p: Partial<ProductItem>): Row {
   return clean({
-    org_id: p.orgId === undefined ? undefined : p.orgId || null,
+    org_id: p.orgId === undefined ? undefined : (p.orgId && isValidUuid(p.orgId) ? p.orgId : null),
     sku: p.sku,
     name: p.name,
     category: p.category,
@@ -203,7 +210,7 @@ export function toQuotation(r: Row): Quotation {
 /** เฉพาะฟิลด์เนื้อหาเอกสาร (ไม่รวมสถานะ/ลายเซ็น ซึ่งจัดการผ่าน workflow) */
 export function quotationContentToRow(q: Partial<Quotation>): Row {
   return clean({
-    org_id: q.orgId,
+    org_id: q.orgId && isValidUuid(q.orgId) ? q.orgId : undefined,
     customer_name: q.customerName,
     customer_address: q.customerAddress,
     customer_tax_id: q.customerTaxId,

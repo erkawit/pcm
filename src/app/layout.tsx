@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'ระบบบริหารและออกใบเสนอราคา (PCM Quotation System)',
   description: 'ระบบออกใบเสนอราคา จัดการแคตตาล็อกสินค้า และกระบวนการลงนามอนุมัติเอกสารออนไลน์',
+  icons: {
+    icon: '/logos/playch-logo.png',
+  },
 };
 
 export default function RootLayout({
