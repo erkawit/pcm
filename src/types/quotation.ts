@@ -19,13 +19,13 @@ export interface Organization {
   bankAccountName: string;
   bankAccountNumber: string;
   promptPayId?: string;
-  themePreset?: 'gamer-cyan-ruby' | 'classic-cream' | 'dark-gold';
   isDefault?: boolean;
   createdAt: string;
 }
 
 export interface AppUser {
   id: string;
+  authUserId?: string;
   username: string;
   fullName: string;
   email: string;
@@ -64,12 +64,23 @@ export interface QuotationLineItem {
   totalPrice: number;
 }
 
+export type AuditAction =
+  | 'CREATED'
+  | 'UPDATED'
+  | 'SUBMITTED_FOR_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'SIGNED'
+  | 'DELETED'
+  | 'EXPORTED_PDF'
+  | 'EXPORTED_WORD';
+
 export interface QuotationAuditLog {
   id: string;
   quotationId: string;
   userId: string;
   userName: string;
-  action: 'CREATED' | 'UPDATED' | 'SUBMITTED_FOR_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SIGNED' | 'EXPORTED_PDF' | 'EXPORTED_WORD';
+  action: AuditAction;
   comment?: string;
   timestamp: string;
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import Link from 'next/link';
 import {
   FileText,
   Package,
@@ -28,6 +27,10 @@ import {
   TrendingUp,
   CreditCard,
   Database,
+  LogOut,
+  RefreshCw,
+  User as UserIcon,
+  Loader2,
 } from 'lucide-react';
 import {
   useQuotationStore,
@@ -41,6 +44,7 @@ import UserManagementModal from '@/components/quotation/UserManagementModal';
 import OrganizationManagementModal from '@/components/quotation/OrganizationManagementModal';
 import AuditLogModal from '@/components/quotation/AuditLogModal';
 import SupabaseConfigModal from '@/components/quotation/SupabaseConfigModal';
+import { LoginView } from '@/components/auth/LoginView';
 
 type ActiveTab = 'QUOTATIONS' | 'PRODUCTS' | 'USERS' | 'ORGANIZATIONS';
 
@@ -52,15 +56,17 @@ function QuotationDashboardInner() {
     products,
     currentOrg,
     currentUser,
-    switchUser,
     switchOrganization,
     selectedQuotation,
     selectQuotation,
     deleteQuotation,
     submitForApproval,
-    resetToDefaults,
     isSupabaseActive,
+    isLoadingData,
     reloadFromSupabase,
+    isAuthenticated,
+    isAuthLoading,
+    signOut,
   } = useQuotationStore();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('QUOTATIONS');
@@ -76,6 +82,29 @@ function QuotationDashboardInner() {
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [auditQuotationId, setAuditQuotationId] = useState<string | undefined>();
+
+  // If Auth state is still being determined
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 mb-4 animate-bounce">
+          <FileText className="w-8 h-8" />
+        </div>
+        <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
+          <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+          <span>กำลังตรวจสอบสถานะการเข้าสู่ระบบ...</span>
+        </div>
+        <p className="text-xs text-slate-400 mt-1">
+          PlayCH Channel & Quotation Management (PCM)
+        </p>
+      </div>
+    );
+  }
+
+  // If user is not authenticated or pending approval -> show LoginView
+  if (!isAuthenticated) {
+    return <LoginView />;
+  }
 
   // Filtered Quotations
   const filteredQuotations = quotations.filter((q) => {
@@ -108,6 +137,28 @@ function QuotationDashboardInner() {
     setIsAuditModalOpen(true);
   };
 
+  const getRoleBadge = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'signatory':
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      default:
+        return 'bg-blue-100 text-blue-700 border-blue-200';
+    }
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'ผู้ดูแลระบบ (Admin)';
+      case 'signatory':
+        return 'ผู้มีอำนาจลงนาม (Signatory)';
+      default:
+        return 'เจ้าหน้าที่ (Staff)';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       {/* ======================================================== */}
@@ -119,9 +170,12 @@ function QuotationDashboardInner() {
           <div className="flex items-center gap-3.5">
             <div className="relative w-10 h-10 rounded-xl overflow-hidden p-1 bg-white border border-slate-200 shadow-xs flex items-center justify-center">
               <img
-                src="/logos/playch-logo.png"
-                alt="PlayCH Logo"
+                src={currentOrg.logoUrl || '/logos/playch-logo.png'}
+                alt="Logo"
                 className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/logos/playch-logo.png';
+                }}
               />
             </div>
 
@@ -130,17 +184,17 @@ function QuotationDashboardInner() {
                 <h1 className="font-bold text-base md:text-lg tracking-tight text-slate-900">
                   ระบบบริหารและออกใบเสนอราคา
                 </h1>
-                <span className="text-[11px] px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-200/60">
-                  PCM System
+                <span className="text-[11px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-200/60">
+                  PCM Enterprise
                 </span>
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
-                Quotation & Document Management System with Digital Signature Workflow
+                {currentOrg.name} — ใบเสนอราคาและการลงนามอนุมัติดิจิทัล
               </p>
             </div>
           </div>
 
-          {/* Quick Switchers: Organization & Persona/Role Switcher */}
+          {/* Quick Switchers & User Session Profile */}
           <div className="flex items-center gap-2.5 flex-wrap">
             {/* Organization Selector */}
             <div className="flex items-center bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 gap-2 text-xs">
@@ -156,64 +210,75 @@ function QuotationDashboardInner() {
                   </option>
                 ))}
               </select>
-              <button
-                onClick={() => setIsOrgModalOpen(true)}
-                className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold ml-1 hover:underline"
-                title="จัดการองค์กร / ร้านค้า"
-              >
-                จัดการ
-              </button>
-            </div>
-
-            {/* Persona Switcher (Allows testing Admin, Signatory, Staff instantly) */}
-            <div className="flex items-center bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 gap-2 text-xs">
-              <Shield className="w-4 h-4 text-blue-600" />
-              <div className="text-xs flex items-center gap-1.5">
-                <span className="text-slate-500 hidden md:inline">ผู้ใช้งาน:</span>
-                <select
-                  value={currentUser.id}
-                  onChange={(e) => switchUser(e.target.value)}
-                  className="bg-transparent text-xs text-slate-800 font-medium focus:outline-none cursor-pointer"
+              {currentUser.role === 'admin' && (
+                <button
+                  onClick={() => setIsOrgModalOpen(true)}
+                  className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold ml-1 hover:underline"
+                  title="จัดการองค์กร / ร้านค้า"
                 >
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.fullName} [{u.role.toUpperCase()}]
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                onClick={() => setIsUserModalOpen(true)}
-                className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold ml-1 hover:underline"
-                title="จัดการสิทธิ์ผู้ใช้งาน"
-              >
-                ตั้งค่า
-              </button>
+                  จัดการ
+                </button>
+              )}
             </div>
 
-            {/* Supabase Cloud DB Status & Config Button */}
+            {/* Authenticated User Badge */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1.5 gap-2 text-xs shadow-xs">
+              <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[11px]">
+                {currentUser.fullName ? currentUser.fullName.charAt(0) : 'U'}
+              </div>
+              <div className="leading-tight text-left">
+                <div className="font-semibold text-slate-900 truncate max-w-[130px]">
+                  {currentUser.fullName}
+                </div>
+                <div className="text-[10px] text-slate-500 truncate max-w-[130px]">
+                  {currentUser.position || currentUser.department || getRoleLabel(currentUser.role)}
+                </div>
+              </div>
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getRoleBadge(
+                  currentUser.role
+                )}`}
+              >
+                {currentUser.role.toUpperCase()}
+              </span>
+            </div>
+
+            {/* Supabase Status Pill */}
             <button
               onClick={() => setIsSupabaseModalOpen(true)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition shadow-xs ${
                 isSupabaseActive
                   ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
-                  : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'
+                  : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
               }`}
-              title="ตั้งค่าเชื่อมต่อฐานข้อมูล Supabase"
+              title="ตรวจสอบสถานะฐานข้อมูล Supabase"
             >
-              <Database className={`w-3.5 h-3.5 ${isSupabaseActive ? 'text-emerald-600' : 'text-slate-400'}`} />
+              <Database
+                className={`w-3.5 h-3.5 ${isSupabaseActive ? 'text-emerald-600' : 'text-amber-600'}`}
+              />
               <span className="hidden md:inline">
-                {isSupabaseActive ? 'Supabase: เชื่อมต่อแล้ว' : 'Supabase: โหมด Local'}
+                {isSupabaseActive ? 'Supabase เชื่อมต่อแล้ว' : 'Supabase ออฟไลน์'}
               </span>
             </button>
 
-            {/* Reset Data Button */}
+            {/* Live Sync / Refresh Button */}
             <button
-              onClick={resetToDefaults}
-              className="p-2 rounded-lg bg-white hover:bg-slate-100 text-slate-600 hover:text-amber-600 transition border border-slate-200 shadow-xs"
-              title="รีเซ็ตข้อมูลตัวอย่างกลับเป็นค่าเริ่มต้น"
+              onClick={() => reloadFromSupabase()}
+              disabled={isLoadingData}
+              className="p-2 rounded-lg bg-white hover:bg-slate-100 text-slate-600 hover:text-blue-600 transition border border-slate-200 shadow-xs disabled:opacity-50"
+              title="รีเฟรชข้อมูลจากฐานข้อมูล"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${isLoadingData ? 'animate-spin text-blue-600' : ''}`} />
+            </button>
+
+            {/* Sign Out Button */}
+            <button
+              onClick={() => signOut()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium text-xs transition shadow-xs"
+              title="ออกจากระบบ"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>ออกจากระบบ</span>
             </button>
           </div>
         </div>
@@ -241,21 +306,25 @@ function QuotationDashboardInner() {
               <span>สินค้า & บริการ ({products.length})</span>
             </button>
 
-            <button
-              onClick={() => setIsUserModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
-            >
-              <Users className="w-4 h-4 text-slate-500" />
-              <span>ผู้ใช้งาน & สิทธิ์ลงนาม ({users.length})</span>
-            </button>
+            {currentUser.role === 'admin' && (
+              <button
+                onClick={() => setIsUserModalOpen(true)}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+              >
+                <Users className="w-4 h-4 text-slate-500" />
+                <span>ผู้ใช้งาน & สิทธิ์ลงนาม ({users.length})</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setIsOrgModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
-            >
-              <Building2 className="w-4 h-4 text-slate-500" />
-              <span>ข้อมูลองค์กร / ร้านค้า ({organizations.length})</span>
-            </button>
+            {currentUser.role === 'admin' && (
+              <button
+                onClick={() => setIsOrgModalOpen(true)}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+              >
+                <Building2 className="w-4 h-4 text-slate-500" />
+                <span>ข้อมูลองค์กร / ร้านค้า ({organizations.length})</span>
+              </button>
+            )}
 
             <button
               onClick={() => handleViewAudit()}
@@ -350,153 +419,186 @@ function QuotationDashboardInner() {
                 </div>
                 <button
                   onClick={handleCreateNew}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-xs"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-xs transition"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>สร้างใบเสนอราคา</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  สร้างใบเสนอราคาใหม่
                 </button>
               </div>
 
               {/* Search & Filters */}
-              <div className="space-y-2.5">
+              <div className="space-y-2">
                 <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="ค้นหาเลขที่เอกสาร, ชื่อลูกค้า, เบอร์โทร..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-900 placeholder-slate-400 transition"
                   />
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] pb-1">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
                   {[
                     { id: 'ALL', label: 'ทั้งหมด' },
                     { id: 'draft', label: 'แบบร่าง' },
                     { id: 'pending_approval', label: 'รออนุมัติ' },
                     { id: 'approved', label: 'อนุมัติแล้ว' },
-                    { id: 'rejected', label: 'ส่งกลับ' },
-                  ].map((tab) => (
+                    { id: 'rejected', label: 'ส่งกลับแก้ไข' },
+                  ].map((filter) => (
                     <button
-                      key={tab.id}
-                      onClick={() => setStatusFilter(tab.id)}
-                      className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap font-medium ${
-                        statusFilter === tab.id
-                          ? 'bg-slate-900 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
+                      key={filter.id}
+                      onClick={() => setStatusFilter(filter.id)}
+                      className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition ${
+                        statusFilter === filter.id
+                          ? 'bg-slate-800 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                       }`}
                     >
-                      {tab.label}
+                      {filter.label}
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Quotations List Cards */}
-            <div className="space-y-2.5 max-h-[780px] overflow-y-auto pr-1">
+            {/* Quotations List */}
+            <div className="space-y-2.5 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
               {filteredQuotations.length === 0 ? (
-                <div className="p-8 text-center bg-white border border-dashed border-slate-200 rounded-xl text-xs text-slate-500">
-                  ไม่พบใบเสนอราคาในเงื่อนไขที่เลือก
+                <div className="p-8 text-center bg-white border border-slate-200 rounded-xl">
+                  <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-slate-700">ไม่พบเอกสารใบเสนอราคา</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    ยังไม่มีข้อมูลที่ตรงตามเงื่อนไข หรือยังไม่ได้สร้างเอกสาร
+                  </p>
+                  <button
+                    onClick={handleCreateNew}
+                    className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-semibold hover:bg-blue-100 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    สร้างเอกสารฉบับแรก
+                  </button>
                 </div>
               ) : (
                 filteredQuotations.map((q) => {
                   const isSelected = selectedQuotation?.id === q.id;
+
+                  const getStatusTag = (status: QuotationStatus) => {
+                    switch (status) {
+                      case 'approved':
+                        return {
+                          label: 'อนุมัติแล้ว',
+                          color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                          icon: <CheckCircle className="w-3 h-3 text-emerald-600 inline mr-1" />,
+                        };
+                      case 'pending_approval':
+                        return {
+                          label: 'รออนุมัติ',
+                          color: 'bg-amber-50 text-amber-700 border-amber-200',
+                          icon: <Clock className="w-3 h-3 text-amber-600 inline mr-1" />,
+                        };
+                      case 'rejected':
+                        return {
+                          label: 'ส่งกลับแก้ไข',
+                          color: 'bg-rose-50 text-rose-700 border-rose-200',
+                          icon: <XCircle className="w-3 h-3 text-rose-600 inline mr-1" />,
+                        };
+                      default:
+                        return {
+                          label: 'แบบร่าง',
+                          color: 'bg-slate-100 text-slate-600 border-slate-200',
+                          icon: null,
+                        };
+                    }
+                  };
+
+                  const tag = getStatusTag(q.status);
+
                   return (
                     <div
                       key={q.id}
                       onClick={() => selectQuotation(q)}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer relative group ${
+                      className={`p-4 rounded-xl border transition cursor-pointer text-left relative ${
                         isSelected
-                          ? 'bg-blue-50/60 border-blue-500 shadow-sm ring-1 ring-blue-500/30'
+                          ? 'bg-blue-50/50 border-blue-500 shadow-sm ring-1 ring-blue-500/20'
                           : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-blue-700">
+                            <span className="font-bold font-mono text-sm text-slate-900">
                               {q.quotationNumber}
                             </span>
-                            {/* Status tag */}
-                            {q.status === 'approved' && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
-                                อนุมัติแล้ว
-                              </span>
-                            )}
-                            {q.status === 'pending_approval' && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 font-semibold border border-amber-200">
-                                รอลงนาม
-                              </span>
-                            )}
-                            {q.status === 'rejected' && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 font-semibold border border-rose-200">
-                                ส่งกลับแก้ไข
-                              </span>
-                            )}
-                            {q.status === 'draft' && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-semibold border border-slate-200">
-                                แบบร่าง
-                              </span>
-                            )}
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-md border font-medium ${tag.color}`}
+                            >
+                              {tag.icon}
+                              {tag.label}
+                            </span>
                           </div>
-                          <h4 className="font-semibold text-slate-900 text-sm mt-1.5">
+                          <h4 className="font-semibold text-xs text-slate-800 mt-1 truncate max-w-[240px]">
                             {q.customerName}
                           </h4>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            ออกวันที่: {q.issueDate} • {q.items?.length || 0} รายการ
-                          </p>
+                          <span className="text-[11px] text-slate-400 block mt-0.5">
+                            ออกเมื่อ: {q.issueDate}
+                          </span>
                         </div>
 
                         <div className="text-right">
-                          <span className="text-[11px] text-slate-400 block">ยอดรวมทั้งสิ้น</span>
-                          <span className="font-mono font-bold text-sm text-slate-900">
-                            ฿{q.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          <span className="text-sm font-bold font-mono text-slate-900 block">
+                            ฿{q.grandTotal.toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {q.items.length} รายการ
                           </span>
                         </div>
                       </div>
 
-                      {/* Card Action footer */}
+                      {/* Action buttons inside card */}
                       <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
-                        <span className="text-[11px] text-slate-500">
-                          ผู้ลงนาม: {q.signatoryName || '-'}
-                        </span>
+                        <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">
+                          <span>สร้างโดย: {q.createdByName || 'พนักงาน'}</span>
+                        </div>
 
                         <div className="flex items-center gap-1">
+                          {(q.status === 'draft' || q.status === 'rejected' || currentUser.role === 'admin') && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(q);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                              title="แก้ไขเอกสาร"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
                           <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEdit(q);
-                            }}
-                            className="p-1.5 rounded-md text-slate-500 hover:text-blue-600 hover:bg-slate-100 transition"
-                            title="แก้ไข"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleViewAudit(q.id);
                             }}
-                            className="p-1.5 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
-                            title="ดูประวัติ"
+                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                            title="ดูประวัติการดำเนินงาน"
                           >
                             <History className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteQuotation(q.id);
-                            }}
-                            className="p-1.5 rounded-md text-slate-500 hover:text-rose-600 hover:bg-slate-100 transition"
-                            title="ลบเอกสาร"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+
+                          {(q.status === 'draft' || q.status === 'rejected' || currentUser.role === 'admin') && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteQuotation(q.id);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
+                              title="ลบเอกสาร"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -506,28 +608,30 @@ function QuotationDashboardInner() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Clean Document View */}
-          <div className="lg:col-span-7 flex justify-center">
+          {/* RIGHT COLUMN: Live Enterprise Document Viewer & Action Toolbar */}
+          <div className="lg:col-span-7">
             {selectedQuotation ? (
               <QuotationDocumentView
                 quotation={selectedQuotation}
-                organization={
-                  organizations.find((o) => o.id === selectedQuotation.orgId) || currentOrg
-                }
+                organization={currentOrg}
                 onEdit={() => handleEdit(selectedQuotation)}
+                onViewAudit={() => handleViewAudit(selectedQuotation.id)}
               />
             ) : (
-              <div className="w-full min-h-[500px] flex flex-col items-center justify-center p-8 text-center rounded-2xl bg-white border border-slate-200 text-slate-500 shadow-xs">
-                <FileText className="w-12 h-12 text-slate-300 mb-3" />
-                <h3 className="text-slate-800 font-semibold text-base">เลือกใบเสนอราคาเพื่อดูตัวอย่าง</h3>
-                <p className="text-xs text-slate-500 max-w-sm mt-1">
-                  คลิกที่รายการใบเสนอราคาทางด้านซ้ายเพื่อดูตัวอย่างเอกสาร ลงนามอนุมัติ หรือส่งออกไฟล์ Word & PDF
+              <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl shadow-xs">
+                <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-800">
+                  เลือกใบเสนอราคาเพื่อดูตัวอย่างเอกสาร
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  คลิกที่รายการใบเสนอราคาด้านซ้ายเพื่อดูตัวอย่างเอกสารจริง ตรวจสอบการลงนาม หรือส่งออกเป็น Word/PDF
                 </p>
                 <button
                   onClick={handleCreateNew}
-                  className="mt-4 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs"
+                  className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-xs transition"
                 >
-                  + สร้างใบเสนอราคาใหม่
+                  <Plus className="w-4 h-4" />
+                  สร้างใบเสนอราคาใหม่
                 </button>
               </div>
             )}

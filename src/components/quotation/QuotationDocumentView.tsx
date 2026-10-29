@@ -18,6 +18,7 @@ import {
   Calendar,
   CreditCard,
   Edit2,
+  History,
 } from 'lucide-react';
 import { Quotation, Organization } from '@/types/quotation';
 import { useQuotationStore } from '@/lib/quotation-store';
@@ -29,12 +30,14 @@ interface QuotationDocumentViewProps {
   quotation: Quotation;
   organization: Organization;
   onEdit?: () => void;
+  onViewAudit?: () => void;
 }
 
 export default function QuotationDocumentView({
   quotation,
   organization,
   onEdit,
+  onViewAudit,
 }: QuotationDocumentViewProps) {
   const {
     currentUser,
@@ -194,6 +197,17 @@ export default function QuotationDocumentView({
             <Printer className="w-3.5 h-3.5" />
             <span>พิมพ์ / PDF</span>
           </button>
+
+          {onViewAudit && (
+            <button
+              onClick={onViewAudit}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium border border-slate-300 shadow-xs transition"
+              title="ดูประวัติการดำเนินงาน"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>ประวัติ</span>
+            </button>
+          )}
 
           {onEdit && (
             <button

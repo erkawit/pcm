@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  createContext,
+  useContext,
+  ReactNode,
+} from 'react';
+import type { Session, User } from '@supabase/supabase-js';
 import Swal from 'sweetalert2';
 import {
   Organization,
@@ -8,14 +16,33 @@ import {
   ProductItem,
   Quotation,
   QuotationAuditLog,
-  UserRole,
 } from '@/types/quotation';
+import { getSupabase, isSupabaseConfigured } from './supabase';
 import {
-  fetchAllFromSupabase,
-  upsertQuotationToSupabase,
-  deleteQuotationFromSupabase,
-  isSupabaseConfigured,
-} from './supabase';
+  fetchAllData,
+  fetchProfileByAuthId,
+  fetchQuotations,
+  fetchProducts,
+  fetchOrganizations,
+  fetchUsers,
+  fetchAuditLogs,
+  nextQuotationNumber,
+  insertQuotation,
+  updateQuotationRow,
+  replaceQuotationItems,
+  deleteQuotationRow,
+  insertAuditLog,
+  insertProduct,
+  updateProductRow,
+  deleteProductRow,
+  insertOrganization,
+  updateOrganizationRow,
+  deleteOrganizationRow,
+  updateAppUserRow,
+  adminUsersApi,
+  quotationContentToRow,
+  dbErrorMessage,
+} from './db';
 
 // SweetAlert Professional Business Styled Alert Helpers
 export const showSuccessAlert = (title: string, text: string) => {
@@ -72,342 +99,71 @@ export const showConfirmDialog = async (
   });
 };
 
-// Seed default digital signature as SVG DataURL for the manager
-const DEFAULT_SIGNATURE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="70" viewBox="0 0 220 70"><path d="M15,45 Q40,15 70,30 T120,25 T160,40 T195,20 M60,35 Q75,55 90,35 M130,30 L150,52" stroke="%231d4ed8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const DEFAULT_ORG: Organization = {
+  id: 'org-default',
+  name: 'PlayCH (Play Channel)',
+  legalName: 'บริษัท เพลย์แชนแนล มีเดีย แอนด์ เกมมิ่ง กรุ๊ป จำกัด',
+  tagline: 'Official Media & Production Hub',
+  logoUrl: '/logos/playch-logo.png',
+  taxId: '0105567089123',
+  address: '88/9 ถ.รัชดาภิเษก แขวงดินแดง เขตดินแดง กรุงเทพมหานคร 10400',
+  phone: '082-999-7890, 02-123-4567',
+  email: 'contact@playchannel.live',
+  website: 'https://playchannel.live',
+  bankName: 'ธนาคารกสิกรไทย (KBANK)',
+  bankAccountName: 'บจก. เพลย์แชนแนล มีเดีย',
+  bankAccountNumber: '789-2-34567-8',
+  isDefault: true,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
 
-const INITIAL_ORGS: Organization[] = [
-  {
-    id: 'org-playch',
-    name: 'PlayCH (Play Channel)',
-    legalName: 'บริษัท เพลย์แชนแนล มีเดีย แอนด์ เกมมิ่ง กรุ๊ป จำกัด',
-    tagline: 'Official Game Creator & Esports Broadcasting Hub',
-    logoUrl: '/logos/playch-logo.png',
-    taxId: '0105567089123',
-    address: '88/9 ถ.รัชดาภิเษก แขวงดินแดง เขตดินแดง กรุงเทพมหานคร 10400',
-    phone: '082-999-7890, 02-123-4567',
-    email: 'contact@playchannel.live',
-    website: 'https://playch.tv',
-    bankName: 'ธนาคารกสิกรไทย (KBANK)',
-    bankAccountName: 'บจก. เพลย์แชนแนล มีเดีย',
-    bankAccountNumber: '789-2-34567-8',
-    promptPayId: '0105567089123',
-    themePreset: 'gamer-cyan-ruby',
-    isDefault: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'org-dco',
-    name: 'DCO Gaming Gear & Merch',
-    legalName: 'ร้านดีซีโอ เกียร์เมอร์ ช็อป',
-    tagline: 'Gaming Hardware, PC Rig & Dark Fantasy Collectibles',
-    logoUrl: '/logos/playch-logo.png',
-    taxId: '0105566014499',
-    address: '999 อาคารดิจิทัลเกตเวย์ ชั้น 4 สยามสแควร์ กรุงเทพฯ 10330',
-    phone: '02-888-9999',
-    email: 'shop@dreadcore.online',
-    website: 'https://dreadcore.online',
-    bankName: 'ธนาคารไทยพาณิชย์ (SCB)',
-    bankAccountName: 'DCO Gaming Shop By PlayCH',
-    bankAccountNumber: '111-2-99888-0',
-    themePreset: 'dark-gold',
-    isDefault: false,
-    createdAt: '2026-02-01T00:00:00.000Z',
-  },
-  {
-    id: 'org-borcelle',
-    name: 'Borcelle Creative Agency',
-    legalName: 'บอร์เซลล์ ครีเอทีฟ เอเจนซี่ จำกัด',
-    tagline: 'Modern Digital Advertising & Brand Solutions',
-    logoUrl: '/logos/playch-logo.png',
-    taxId: '1234567890',
-    address: '123 Anywhere St., Any City, ST 12345',
-    phone: '123-456-7890',
-    email: 'hello@reallygreatsite.com',
-    website: 'www.reallygreatsite.com',
-    bankName: 'LICERIA & CO. BANK',
-    bankAccountName: 'LICERIA & CO.',
-    bankAccountNumber: '1234567890',
-    themePreset: 'classic-cream',
-    isDefault: false,
-    createdAt: '2026-03-01T00:00:00.000Z',
-  },
-];
+const GUEST_USER: AppUser = {
+  id: 'guest',
+  username: 'guest',
+  fullName: 'ผู้มาเยือน',
+  email: '',
+  role: 'staff',
+  department: '',
+  position: 'รอการเข้าสู่ระบบ',
+  phone: '',
+  canSign: false,
+  maxApprovalAmount: 0,
+  isActive: false,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
 
-const INITIAL_USERS: AppUser[] = [
-  {
-    id: 'user-admin',
-    username: 'playch_admin',
-    fullName: 'พงศธร เกียรติวานิช (Admin Master)',
-    email: 'admin@playchannel.live',
-    role: 'admin',
-    department: 'Management & Operations',
-    position: 'Chief Operating Officer (COO)',
-    phone: '081-111-2222',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    signatureDataUrl: DEFAULT_SIGNATURE_SVG,
-    canSign: true,
-    maxApprovalAmount: 5000000,
-    isActive: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'user-signatory',
-    username: 'signatory_manager',
-    fullName: 'อดิตรา มอนด์บีนี',
-    email: 'aditra.m@playchannel.live',
-    role: 'signatory',
-    department: 'Executive Board',
-    position: 'ผู้จัดการ (General Manager)',
-    phone: '082-345-6789',
-    avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80',
-    signatureDataUrl: DEFAULT_SIGNATURE_SVG,
-    canSign: true,
-    maxApprovalAmount: 1500000,
-    isActive: true,
-    createdAt: '2026-01-02T00:00:00.000Z',
-  },
-  {
-    id: 'user-staff',
-    username: 'staff_somchai',
-    fullName: 'สมชาย พิชิตเกม',
-    email: 'somchai.p@playchannel.live',
-    role: 'staff',
-    department: 'Content Production & Sales',
-    position: 'เจ้าหน้าที่ประสานงานลูกค้าและมีเดีย (Media Coordinator)',
-    phone: '089-777-8888',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    canSign: false,
-    maxApprovalAmount: 0,
-    isActive: true,
-    createdAt: '2026-01-03T00:00:00.000Z',
-  },
-];
-
-const INITIAL_PRODUCTS: ProductItem[] = [
-  {
-    id: 'prod-item-1',
-    sku: 'ITEM-001',
-    name: 'รายการที่ 1 (สตรีมมิ่งรีวิวเกม YouTube Live 2 ชั่วโมง)',
-    category: 'Media & Streaming',
-    description: 'โปรโมทและเล่นเกมถ่ายทอดสดพร้อมใส่โลโก้สปอนเซอร์และปักหมุดลิงก์',
-    unitPrice: 1000,
-    unitLabel: 'รายการ',
-    isActive: true,
-    createdAt: '2026-01-10T00:00:00.000Z',
-  },
-  {
-    id: 'prod-item-2',
-    sku: 'ITEM-002',
-    name: 'รายการที่ 2 (ตัดต่อคลิปไฮไลท์ TikTok / Reels / Shorts)',
-    category: 'Content Production',
-    description: 'ตัดต่อคลิปสั้นไฮไลท์ช็อตเด็ดเกมความคมชัด 4K พร้อมซับไตเติล',
-    unitPrice: 1000,
-    unitLabel: 'คลิป',
-    isActive: true,
-    createdAt: '2026-01-10T00:00:00.000Z',
-  },
-  {
-    id: 'prod-item-3',
-    sku: 'ITEM-003',
-    name: 'รายการที่ 3 (แบนเนอร์สนับสนุนมุมจอสตรีม Overlay 1 สัปดาห์)',
-    category: 'Advertising Banner',
-    description: 'วางโลโก้แบรนด์มุมขวาบนระหว่างการไลฟ์สตรีม',
-    unitPrice: 1000,
-    unitLabel: 'แพ็กเกจ',
-    isActive: true,
-    createdAt: '2026-01-10T00:00:00.000Z',
-  },
-  {
-    id: 'prod-item-4',
-    sku: 'ITEM-004',
-    name: 'รายการที่ 4 (โพสต์โปรโมท Facebook Page & YouTube Community)',
-    category: 'Social Media',
-    description: 'โพสต์รูปภาพรีวิวสินค้าพร้อมแท็กเพจแบรนด์',
-    unitPrice: 1000,
-    unitLabel: 'โพสต์',
-    isActive: true,
-    createdAt: '2026-01-10T00:00:00.000Z',
-  },
-  {
-    id: 'prod-item-5',
-    sku: 'ITEM-005',
-    name: 'รายการที่ 5 (สิทธิ์นำคลิปไปยิงโฆษณา Ads Whitelisting 30 วัน)',
-    category: 'Commercial Rights',
-    description: 'อนุญาตให้แบรนด์นำคลิปไปใช้ในการยิงโฆษณาแบบ Whitelist',
-    unitPrice: 1000,
-    unitLabel: 'สิทธิ์',
-    isActive: true,
-    createdAt: '2026-01-10T00:00:00.000Z',
-  },
-  {
-    id: 'prod-item-6',
-    sku: 'PC-REAVER-PRO',
-    name: 'Custom Gaming PC Rig - PlayCH Esports Edition (Core i9 + RTX 4080)',
-    category: 'Hardware & Gear',
-    description: 'ชุดคอมพิวเตอร์สเปกสตรีมเมอร์ระดับสูง พร้อม Water Cooling',
-    unitPrice: 85900,
-    unitLabel: 'เซ็ต',
-    isActive: true,
-    createdAt: '2026-01-15T00:00:00.000Z',
-  },
-];
-
-// Initial Quotations (One matches Image 1 exactly!)
-const INITIAL_QUOTATIONS: Quotation[] = [
-  {
-    id: 'quot-sample-01',
-    quotationNumber: 'QT-2568-088',
-    orgId: 'org-playch',
-    customerName: 'OLIVIA WILSON',
-    customerAddress: '123 Anywhere St., Any City, ST 12345',
-    customerTaxId: '1234567890',
-    customerPhone: '123-456-7890',
-    customerEmail: 'olivia.wilson@example.com',
-    issueDate: '31 สิงหาคม 2568',
-    validUntil: '30 กันยายน 2568',
-    items: [
-      { id: 'item-1', order: 1, name: 'รายการที่ 1', quantity: 1, unitPrice: 1000, totalPrice: 1000 },
-      { id: 'item-2', order: 2, name: 'รายการที่ 2', quantity: 3, unitPrice: 1000, totalPrice: 3000 },
-      { id: 'item-3', order: 3, name: 'รายการที่ 3', quantity: 1, unitPrice: 1000, totalPrice: 1000 },
-      { id: 'item-4', order: 4, name: 'รายการที่ 4', quantity: 1, unitPrice: 1000, totalPrice: 1000 },
-      { id: 'item-5', order: 5, name: 'รายการที่ 5', quantity: 2, unitPrice: 1000, totalPrice: 2000 },
-    ],
-    subtotal: 8000,
-    vatPercent: 7,
-    vatAmount: 560,
-    discount: 100,
-    grandTotal: 8460, // Exact value from Image 1! (8000 + 560 - 100 = 8460.00)
-    paymentBankName: 'LICERIA & CO. BANK',
-    paymentAccountName: 'LICERIA & CO.',
-    paymentAccountNumber: '1234567890',
-    notes: 'กรุณาชำระเงินมัดจำ 50% ก่อนเริ่มดำเนินการผลิตงาน',
-    status: 'approved',
-    theme: 'gamer',
-    createdByUserId: 'user-staff',
-    createdByName: 'สมชาย พิชิตเกม',
-    signatoryUserId: 'user-signatory',
-    signatoryName: 'อดิตรา มอนด์บีนี',
-    signatoryPosition: 'ผู้จัดการ',
-    signatureDataUrl: DEFAULT_SIGNATURE_SVG,
-    signedAt: '2026-08-31T14:30:00.000Z',
-    createdAt: '2026-08-31T10:00:00.000Z',
-    updatedAt: '2026-08-31T14:30:00.000Z',
-  },
-  {
-    id: 'quot-sample-02',
-    quotationNumber: 'PLAYCH-QT-2568-102',
-    orgId: 'org-playch',
-    customerName: 'CORSAIR GAMING (THAILAND) CO., LTD.',
-    customerAddress: '555 อาคารเอ็มโพเรียม ทาวเวอร์ ชั้น 21 ถ.สุขุมวิท คลองตัน คลองเตย กทม. 10110',
-    customerTaxId: '0105558123456',
-    customerPhone: '02-664-9988',
-    customerEmail: 'partner.th@corsair.com',
-    issueDate: '28 ตุลาคม 2568',
-    validUntil: '28 พฤศจิกายน 2568',
-    items: [
-      {
-        id: 'item-201',
-        order: 1,
-        name: 'แพ็กเกจสปอนเซอร์หลัก ทัวร์นาเมนต์ DreadCore Champions League 2026',
-        quantity: 1,
-        unitPrice: 50000,
-        totalPrice: 50000,
-      },
-      {
-        id: 'item-202',
-        order: 2,
-        name: 'แบนเนอร์ Logo & Product Placement ในห้องแคสเตอร์สตรีมสด',
-        quantity: 4,
-        unitPrice: 5000,
-        totalPrice: 20000,
-      },
-      {
-        id: 'item-203',
-        order: 3,
-        name: 'ช่วงแจกของรางวัลหูฟังและคีย์บอร์ด Corsair แก่ผู้ชมไลฟ์สด',
-        quantity: 2,
-        unitPrice: 2500,
-        totalPrice: 5000,
-      },
-    ],
-    subtotal: 75000,
-    vatPercent: 7,
-    vatAmount: 5250,
-    discount: 5000,
-    grandTotal: 75250,
-    paymentBankName: 'ธนาคารกสิกรไทย (KBANK)',
-    paymentAccountName: 'บจก. เพลย์แชนแนล มีเดีย',
-    paymentAccountNumber: '789-2-34567-8',
-    notes: 'ราคารวมการโปรโมทผ่านทุกช่องทางในเครือข่าย PlayCH Network',
-    status: 'pending_approval', // Ready for signatory to approve!
-    theme: 'gamer',
-    createdByUserId: 'user-staff',
-    createdByName: 'สมชาย พิชิตเกม',
-    signatoryUserId: 'user-signatory',
-    signatoryName: 'อดิตรา มอนด์บีนี',
-    signatoryPosition: 'ผู้จัดการ',
-    createdAt: '2026-10-28T09:00:00.000Z',
-    updatedAt: '2026-10-28T09:15:00.000Z',
-  },
-];
-
-const INITIAL_LOGS: QuotationAuditLog[] = [
-  {
-    id: 'log-1',
-    quotationId: 'quot-sample-01',
-    userId: 'user-staff',
-    userName: 'สมชาย พิชิตเกม',
-    action: 'CREATED',
-    comment: 'สร้างใบเสนอราคา QT-2568-088 สำหรับลูกค้า OLIVIA WILSON',
-    timestamp: '2026-08-31T10:00:00.000Z',
-  },
-  {
-    id: 'log-2',
-    quotationId: 'quot-sample-01',
-    userId: 'user-staff',
-    userName: 'สมชาย พิชิตเกม',
-    action: 'SUBMITTED_FOR_APPROVAL',
-    comment: 'ส่งเสนอผู้จัดการ อดิตรา มอนด์บีนี เพื่อพิจารณาอนุมัติ',
-    timestamp: '2026-08-31T10:30:00.000Z',
-  },
-  {
-    id: 'log-3',
-    quotationId: 'quot-sample-01',
-    userId: 'user-signatory',
-    userName: 'อดิตรา มอนด์บีนี',
-    action: 'APPROVED',
-    comment: 'ตรวจสอบความถูกต้องและอนุมัติใบเสนอราคาเรียบร้อย',
-    timestamp: '2026-08-31T14:30:00.000Z',
-  },
-  {
-    id: 'log-4',
-    quotationId: 'quot-sample-02',
-    userId: 'user-staff',
-    userName: 'สมชาย พิชิตเกม',
-    action: 'SUBMITTED_FOR_APPROVAL',
-    comment: 'ส่งเสนอผู้จัดการ อนุมัติแพ็กเกจทัวร์นาเมนต์ Corsair Gaming',
-    timestamp: '2026-10-28T09:15:00.000Z',
-  },
-];
-
-const STORAGE_KEY = 'playch_quotation_system_v1';
-
-interface QuotationStoreContextType {
+export interface QuotationStoreContextType {
+  // Data State
   organizations: Organization[];
   users: AppUser[];
   products: ProductItem[];
   quotations: Quotation[];
   auditLogs: QuotationAuditLog[];
-  currentUser: AppUser;
   currentOrg: Organization;
+  currentUser: AppUser;
   selectedQuotation: Quotation | null;
 
-  // Actions
+  // Auth State & Methods
+  session: Session | null;
+  authUser: User | null;
+  isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  authError: string | null;
+  pendingActivationEmail: string | null;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+    profile: { fullName: string; department?: string; position?: string }
+  ) => Promise<void>;
+  signOut: () => Promise<void>;
+
+  // Selection & Navigation
   switchUser: (userId: string) => void;
   switchOrganization: (orgId: string) => void;
   selectQuotation: (quotation: Quotation | null) => void;
 
-  // Quotation Management
+  // Quotation CRUD & Workflow
   createQuotation: (data: Partial<Quotation>) => Promise<Quotation>;
   updateQuotation: (id: string, data: Partial<Quotation>) => Promise<void>;
   deleteQuotation: (id: string) => Promise<boolean>;
@@ -415,24 +171,25 @@ interface QuotationStoreContextType {
   approveQuotation: (quotationId: string, signatureDataUrl?: string) => Promise<boolean>;
   rejectQuotation: (quotationId: string, reason: string) => Promise<boolean>;
 
-  // Products
+  // Products CRUD
   createProduct: (product: Omit<ProductItem, 'id' | 'createdAt'>) => Promise<void>;
   updateProduct: (id: string, product: Partial<ProductItem>) => Promise<void>;
   deleteProduct: (id: string) => Promise<boolean>;
 
-  // Users & Staff
+  // Users & Profile CRUD
   createUser: (user: Omit<AppUser, 'id' | 'createdAt'>) => Promise<void>;
   updateUser: (id: string, user: Partial<AppUser>) => Promise<void>;
   deleteUser: (id: string) => Promise<boolean>;
   updateUserSignature: (userId: string, signatureDataUrl: string) => Promise<void>;
 
-  // Organizations
+  // Organizations CRUD
   createOrganization: (org: Omit<Organization, 'id' | 'createdAt'>) => Promise<void>;
   updateOrganization: (id: string, org: Partial<Organization>) => Promise<void>;
   deleteOrganization: (id: string) => Promise<boolean>;
 
-  // System
+  // System & Synchronization
   isSupabaseActive: boolean;
+  isLoadingData: boolean;
   reloadFromSupabase: () => Promise<void>;
   resetToDefaults: () => void;
 }
@@ -440,550 +197,713 @@ interface QuotationStoreContextType {
 const QuotationStoreContext = createContext<QuotationStoreContextType | null>(null);
 
 export function QuotationStoreProvider({ children }: { children: ReactNode }) {
-  const [organizations, setOrganizations] = useState<Organization[]>(INITIAL_ORGS);
-  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
-  const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
-  const [quotations, setQuotations] = useState<Quotation[]>(INITIAL_QUOTATIONS);
-  const [auditLogs, setAuditLogs] = useState<QuotationAuditLog[]>(INITIAL_LOGS);
+  const [organizations, setOrganizations] = useState<Organization[]>([DEFAULT_ORG]);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [products, setProducts] = useState<ProductItem[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [auditLogs, setAuditLogs] = useState<QuotationAuditLog[]>([]);
 
-  const [currentUserId, setCurrentUserId] = useState<string>('user-admin');
-  const [currentOrgId, setCurrentOrgId] = useState<string>('org-playch');
-  const [selectedQuotationId, setSelectedQuotationId] = useState<string | null>('quot-sample-01');
+  const [currentOrgId, setCurrentOrgId] = useState<string>('org-default');
+  const [activeProfileUser, setActiveProfileUser] = useState<AppUser | null>(null);
+  const [previewUserId, setPreviewUserId] = useState<string | null>(null);
+  const [selectedQuotationId, setSelectedQuotationId] = useState<string | null>(null);
+
+  // Auth State
+  const [session, setSession] = useState<Session | null>(null);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [pendingActivationEmail, setPendingActivationEmail] = useState<string | null>(null);
+
   const [isSupabaseActive, setIsSupabaseActive] = useState<boolean>(false);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
 
-  const reloadFromSupabase = async () => {
-    if (isSupabaseConfigured()) {
-      setIsSupabaseActive(true);
-      const data = await fetchAllFromSupabase();
-      if (data) {
-        if (data.organizations?.length) setOrganizations(data.organizations);
-        if (data.users?.length) setUsers(data.users);
-        if (data.products?.length) setProducts(data.products);
-        if (data.quotations?.length) setQuotations(data.quotations);
-        if (data.auditLogs?.length) setAuditLogs(data.auditLogs);
-      }
-    } else {
+  // Compute currentUser: prefer preview user if set by admin, otherwise authenticated user profile
+  const currentUser: AppUser =
+    (previewUserId ? users.find((u) => u.id === previewUserId) : null) ||
+    activeProfileUser ||
+    GUEST_USER;
+
+  // Compute currentOrg
+  const currentOrg: Organization =
+    organizations.find((o) => o.id === currentOrgId) || organizations[0] || DEFAULT_ORG;
+
+  // Compute selectedQuotation
+  const selectedQuotation: Quotation | null =
+    quotations.find((q) => q.id === selectedQuotationId) || quotations[0] || null;
+
+  // Load all data from Supabase
+  const reloadFromSupabase = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
       setIsSupabaseActive(false);
+      return;
     }
-  };
 
-  // Load from LocalStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.organizations) setOrganizations(parsed.organizations);
-          if (parsed.users) setUsers(parsed.users);
-          if (parsed.products) setProducts(parsed.products);
-          if (parsed.quotations) setQuotations(parsed.quotations);
-          if (parsed.auditLogs) setAuditLogs(parsed.auditLogs);
-          if (parsed.currentUserId) setCurrentUserId(parsed.currentUserId);
-          if (parsed.currentOrgId) setCurrentOrgId(parsed.currentOrgId);
+    try {
+      setIsLoadingData(true);
+      const data = await fetchAllData();
+      if (data.organizations.length > 0) {
+        setOrganizations(data.organizations);
+        if (!currentOrgId || currentOrgId === 'org-default') {
+          setCurrentOrgId(data.organizations[0].id);
         }
-      } catch (e) {
-        console.error('Error loading quotation store from localStorage:', e);
       }
+      setUsers(data.users);
+      setProducts(data.products);
+      setQuotations(data.quotations);
+      setAuditLogs(data.auditLogs);
+      setIsSupabaseActive(true);
+    } catch (err) {
+      console.error('Failed to load data from Supabase:', err);
+    } finally {
+      setIsLoadingData(false);
     }
-    reloadFromSupabase();
+  }, [currentOrgId]);
+
+  // Sync profile after login or auth state change
+  const syncUserProfile = useCallback(async (userId: string) => {
+    try {
+      const profile = await fetchProfileByAuthId(userId);
+      if (profile) {
+        if (!profile.isActive) {
+          setActiveProfileUser(null);
+          setPendingActivationEmail(profile.email);
+        } else {
+          setActiveProfileUser(profile);
+          setPendingActivationEmail(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching user profile:', err);
+    }
   }, []);
 
-  // Save to LocalStorage
+  // Initialize Auth & Supabase Listeners
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({
-            organizations,
-            users,
-            products,
-            quotations,
-            auditLogs,
-            currentUserId,
-            currentOrgId,
-          })
+    if (!isSupabaseConfigured()) {
+      setIsAuthLoading(false);
+      setIsSupabaseActive(false);
+      return;
+    }
+
+    const sb = getSupabase();
+
+    // 1. Check existing session
+    sb.auth.getSession().then(async ({ data: { session: initialSession }, error }) => {
+      if (error) {
+        console.error('Error getting initial session:', error);
+      }
+      if (initialSession?.user) {
+        setSession(initialSession);
+        setAuthUser(initialSession.user);
+        await syncUserProfile(initialSession.user.id);
+        await reloadFromSupabase();
+      }
+      setIsAuthLoading(false);
+    });
+
+    // 2. Listen to Auth changes
+    const {
+      data: { subscription },
+    } = sb.auth.onAuthStateChange(async (event, newSession) => {
+      setSession(newSession);
+      setAuthUser(newSession?.user || null);
+
+      if (event === 'SIGNED_IN' && newSession?.user) {
+        await syncUserProfile(newSession.user.id);
+        await reloadFromSupabase();
+      } else if (event === 'SIGNED_OUT') {
+        setActiveProfileUser(null);
+        setPreviewUserId(null);
+        setPendingActivationEmail(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [reloadFromSupabase, syncUserProfile]);
+
+  // Authentication: Sign In
+  const signIn = async (email: string, password: string) => {
+    setAuthError(null);
+    if (!isSupabaseConfigured()) {
+      throw new Error('ระบบยังไม่ได้เชื่อมต่อ Supabase Database กรุณาตรวจสอบ Environment Variables');
+    }
+
+    const sb = getSupabase();
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+      const msg =
+        error.message === 'Invalid login credentials'
+          ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
+          : error.message;
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+
+    if (data.user) {
+      // Fetch profile
+      let profile = await fetchProfileByAuthId(data.user.id);
+      // If profile takes a moment to be created by trigger, retry once
+      if (!profile) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        profile = await fetchProfileByAuthId(data.user.id);
+      }
+
+      if (profile && !profile.isActive) {
+        setPendingActivationEmail(profile.email);
+        await sb.auth.signOut();
+        throw new Error(
+          'บัญชีของคุณอยู่ระหว่างรอผู้ดูแลระบบ (Admin) เปิดการใช้งาน กรุณาติดต่อ Admin'
         );
-      } catch (e) {
-        console.error('Error saving quotation store to localStorage:', e);
       }
-    }
-  }, [organizations, users, products, quotations, auditLogs, currentUserId, currentOrgId]);
 
-  const currentUser = users.find((u) => u.id === currentUserId) || users[0];
-  const currentOrg = organizations.find((o) => o.id === currentOrgId) || organizations[0];
-  const selectedQuotation = quotations.find((q) => q.id === selectedQuotationId) || null;
-
-  const switchUser = (userId: string) => {
-    const target = users.find((u) => u.id === userId);
-    if (target) {
-      setCurrentUserId(userId);
-      Swal.fire({
-        toast: true,
-        position: 'top-end',
-        icon: 'info',
-        title: `สลับสิทธิ์การทำงานเป็น: ${target.fullName}`,
-        text: `ตำแหน่ง: ${target.position} [${target.role.toUpperCase()}]`,
-        showConfirmButton: false,
-        timer: 2000,
-        background: '#ffffff',
-        color: '#0f172a',
-        customClass: {
-          popup: 'border border-slate-200 shadow-md rounded-xl',
-        },
-      });
+      if (profile) {
+        setActiveProfileUser(profile);
+        setPendingActivationEmail(null);
+      }
+      await reloadFromSupabase();
     }
   };
 
-  const switchOrganization = (orgId: string) => {
-    const target = organizations.find((o) => o.id === orgId);
-    if (target) {
-      setCurrentOrgId(orgId);
-      Swal.fire({
-        toast: true,
-        position: 'top-end',
-        icon: 'info',
-        title: `เปลี่ยนร้านค้า/ช่อง: ${target.name}`,
-        showConfirmButton: false,
-        timer: 1800,
-        background: '#ffffff',
-        color: '#0f172a',
-        customClass: {
-          popup: 'border border-slate-200 shadow-md rounded-xl',
-        },
-      });
-    }
-  };
-
-  const selectQuotation = (quotation: Quotation | null) => {
-    setSelectedQuotationId(quotation ? quotation.id : null);
-  };
-
-  // Add Log Entry
-  const addAuditLog = (
-    quotationId: string,
-    action: QuotationAuditLog['action'],
-    comment?: string
+  // Authentication: Sign Up
+  const signUp = async (
+    email: string,
+    password: string,
+    profileData: { fullName: string; department?: string; position?: string }
   ) => {
-    const newLog: QuotationAuditLog = {
-      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      quotationId,
-      userId: currentUser.id,
-      userName: currentUser.fullName,
-      action,
-      comment,
-      timestamp: new Date().toISOString(),
-    };
-    setAuditLogs((prev) => [newLog, ...prev]);
-  };
-
-  // Create Quotation
-  const createQuotation = async (data: Partial<Quotation>): Promise<Quotation> => {
-    const newId = `quot-${Date.now()}`;
-    const dateNum = new Date();
-    const thaiYear = dateNum.getFullYear() + 543;
-    const quotNum = data.quotationNumber || `PLAYCH-QT-${thaiYear}-${String(quotations.length + 1).padStart(3, '0')}`;
-
-    const newQuotation: Quotation = {
-      id: newId,
-      quotationNumber: quotNum,
-      orgId: data.orgId || currentOrg.id,
-      customerName: data.customerName || 'ลูกค้าทั่วไป',
-      customerAddress: data.customerAddress || '',
-      customerTaxId: data.customerTaxId || '',
-      customerPhone: data.customerPhone || '',
-      customerEmail: data.customerEmail || '',
-      issueDate: data.issueDate || `${dateNum.getDate()} ${['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'][dateNum.getMonth()]} ${thaiYear}`,
-      validUntil: data.validUntil || '',
-      items: data.items || [],
-      subtotal: data.subtotal || 0,
-      discount: data.discount || 0,
-      vatPercent: data.vatPercent !== undefined ? data.vatPercent : 7,
-      vatAmount: data.vatAmount || 0,
-      grandTotal: data.grandTotal || 0,
-      paymentBankName: data.paymentBankName || currentOrg.bankName,
-      paymentAccountName: data.paymentAccountName || currentOrg.bankAccountName,
-      paymentAccountNumber: data.paymentAccountNumber || currentOrg.bankAccountNumber,
-      notes: data.notes || '',
-      status: 'draft',
-      theme: data.theme || 'gamer',
-      createdByUserId: currentUser.id,
-      createdByName: currentUser.fullName,
-      signatoryUserId: data.signatoryUserId,
-      signatoryName: data.signatoryName || 'อดิตรา มอนด์บีนี',
-      signatoryPosition: data.signatoryPosition || 'ผู้จัดการ',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    setQuotations((prev) => [newQuotation, ...prev]);
-    setSelectedQuotationId(newId);
-    addAuditLog(newId, 'CREATED', `สร้างใบเสนอราคาใหม่ ${quotNum}`);
-
-    // Sync to Supabase if configured
-    upsertQuotationToSupabase(newQuotation);
-
-    showSuccessAlert('สร้างใบเสนอราคาสำเร็จ!', `เลขที่เอกสาร ${quotNum} ถูกบันทึกเป็นแบบร่างแล้ว`);
-    return newQuotation;
-  };
-
-  const updateQuotation = async (id: string, data: Partial<Quotation>) => {
-    let updatedObj: Quotation | null = null;
-    setQuotations((prev) =>
-      prev.map((q) => {
-        if (q.id === id) {
-          const updated = {
-            ...q,
-            ...data,
-            updatedAt: new Date().toISOString(),
-          };
-          updatedObj = updated;
-          return updated;
-        }
-        return q;
-      })
-    );
-    if (updatedObj) {
-      upsertQuotationToSupabase(updatedObj);
-    }
-    addAuditLog(id, 'UPDATED', 'แก้ไขข้อมูลใบเสนอราคา');
-    showSuccessAlert('บันทึกสำเร็จ', 'อัปเดตข้อมูลใบเสนอราคาเรียบร้อย');
-  };
-
-  const deleteQuotation = async (id: string): Promise<boolean> => {
-    const target = quotations.find((q) => q.id === id);
-    if (!target) return false;
-
-    const res = await showConfirmDialog(
-      'ยืนยันการลบใบเสนอราคา?',
-      `คุณต้องการลบเอกสารเลขที่ ${target.quotationNumber} ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้`,
-      'ลบเอกสาร'
-    );
-
-    if (res.isConfirmed) {
-      setQuotations((prev) => prev.filter((q) => q.id !== id));
-      if (selectedQuotationId === id) {
-        setSelectedQuotationId(null);
-      }
-      deleteQuotationFromSupabase(id);
-      showSuccessAlert('ลบสำเร็จ', `เอกสาร ${target.quotationNumber} ถูกลบออกจากระบบแล้ว`);
-      return true;
-    }
-    return false;
-  };
-
-  // Workflow: Staff submits quotation to signatory for approval
-  const submitForApproval = async (quotationId: string, signatoryUserId: string): Promise<boolean> => {
-    const target = quotations.find((q) => q.id === quotationId);
-    const signatory = users.find((u) => u.id === signatoryUserId);
-
-    if (!target) return false;
-    if (!signatory || !signatory.canSign) {
-      showErrorAlert('ข้อผิดพลาด', 'กรุณาเลือกผู้มีสิทธิ์ลงนามที่ถูกต้อง');
-      return false;
+    setAuthError(null);
+    if (!isSupabaseConfigured()) {
+      throw new Error('ระบบยังไม่ได้เชื่อมต่อ Supabase Database');
     }
 
-    const res = await showConfirmDialog(
-      'ส่งเสนอเพื่ออนุมัติ?',
-      `ต้องการส่งใบเสนอราคา ${target.quotationNumber} ยอดรวม ${target.grandTotal.toLocaleString()} บาท เสนอต่อ "${signatory.fullName}" (${signatory.position}) หรือไม่?`,
-      'ส่งเสนอเพื่ออนุมัติ'
-    );
-
-    if (res.isConfirmed) {
-      const updated = {
-        ...target,
-        status: 'pending_approval' as const,
-        signatoryUserId: signatory.id,
-        signatoryName: signatory.fullName,
-        signatoryPosition: signatory.position,
-        updatedAt: new Date().toISOString(),
-      };
-      setQuotations((prev) =>
-        prev.map((q) => (q.id === quotationId ? updated : q))
-      );
-      upsertQuotationToSupabase(updated);
-      addAuditLog(
-        quotationId,
-        'SUBMITTED_FOR_APPROVAL',
-        `ส่งเสนอผู้ลงนาม ${signatory.fullName} (${signatory.position})`
-      );
-
-      Swal.fire({
-        icon: 'success',
-        title: 'ส่งเสนออนุมัติสำเร็จ',
-        html: `เอกสาร <b>${target.quotationNumber}</b> ได้ส่งเข้ากล่องรออนุมัติของ <b>${signatory.fullName}</b> เรียบร้อยแล้ว`,
-        confirmButtonColor: '#2563eb',
-        background: '#ffffff',
-        color: '#0f172a',
-        customClass: {
-          popup: 'border border-slate-200 shadow-xl rounded-2xl',
+    const sb = getSupabase();
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: profileData.fullName,
+          department: profileData.department || '',
+          position: profileData.position || '',
         },
-      });
-      return true;
-    }
-    return false;
-  };
-
-  // Workflow: Signatory approves and applies signature
-  const approveQuotation = async (quotationId: string, signatureDataUrl?: string): Promise<boolean> => {
-    const target = quotations.find((q) => q.id === quotationId);
-    if (!target) return false;
-
-    if (!currentUser.canSign && currentUser.role !== 'admin') {
-      showErrorAlert(
-        'ไม่มีสิทธิ์ลงนาม',
-        `บัญชีของคุณ (${currentUser.fullName}) ไม่ได้รับอนุญาตให้ลงนามในเอกสาร กรุณาเข้าสู่ระบบด้วยสิทธิ์ผู้ลงนามหรือผู้ดูแลระบบ`
-      );
-      return false;
-    }
-
-    const sigUrl = signatureDataUrl || currentUser.signatureDataUrl || DEFAULT_SIGNATURE_SVG;
-
-    const res = await showConfirmDialog(
-      'อนุมัติและลงนามเอกสาร?',
-      `คุณกำลังจะอนุมัติและประทับลายมือชื่อในใบเสนอราคา ${target.quotationNumber} ในนาม "${currentUser.fullName}" (${currentUser.position})`,
-      'อนุมัติและลงนาม'
-    );
-
-    if (res.isConfirmed) {
-      const updated = {
-        ...target,
-        status: 'approved' as const,
-        signatoryUserId: currentUser.id,
-        signatoryName: currentUser.fullName,
-        signatoryPosition: currentUser.position,
-        signatureDataUrl: sigUrl,
-        signedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setQuotations((prev) =>
-        prev.map((q) => (q.id === quotationId ? updated : q))
-      );
-      upsertQuotationToSupabase(updated);
-      addAuditLog(
-        quotationId,
-        'APPROVED',
-        `อนุมัติและประทับลายมือชื่อเรียบร้อยโดย ${currentUser.fullName}`
-      );
-
-      Swal.fire({
-        icon: 'success',
-        title: 'อนุมัติและลงนามเรียบร้อย',
-        html: `ใบเสนอราคา <b>${target.quotationNumber}</b> ได้รับการอนุมัติอย่างเป็นทางการ พร้อมส่งออกเป็น PDF และ Word แล้ว`,
-        confirmButtonColor: '#2563eb',
-        background: '#ffffff',
-        color: '#0f172a',
-        customClass: {
-          popup: 'border border-slate-200 shadow-xl rounded-2xl',
-        },
-      });
-      return true;
-    }
-    return false;
-  };
-
-  // Workflow: Signatory rejects quotation
-  const rejectQuotation = async (quotationId: string, reason: string): Promise<boolean> => {
-    const target = quotations.find((q) => q.id === quotationId);
-    if (!target) return false;
-
-    const { value: text, isConfirmed } = await Swal.fire({
-      title: 'ระบุเหตุผลในการส่งกลับแก้ไข / ปฏิเสธ',
-      input: 'textarea',
-      inputPlaceholder: 'กรอกเหตุผลหรือสิ่งที่ต้องการให้บุคลากรแก้ไข เช่น ราคาผิด, เพิ่มส่วนลด...',
-      inputValue: reason || '',
-      showCancelButton: true,
-      confirmButtonText: 'ส่งกลับแก้ไข',
-      cancelButtonText: 'ยกเลิก',
-      confirmButtonColor: '#dc2626',
-      cancelButtonColor: '#64748b',
-      background: '#ffffff',
-      color: '#0f172a',
-      customClass: {
-        popup: 'border border-slate-200 shadow-xl rounded-2xl',
-        input: 'border-slate-300 text-sm focus:border-rose-500',
-      },
-      inputValidator: (val) => {
-        if (!val || !val.trim()) {
-          return 'กรุณาระบุเหตุผลอย่างน้อย 5 ตัวอักษร';
-        }
       },
     });
 
-    if (isConfirmed && text) {
-      const updated = {
-        ...target,
-        status: 'rejected' as const,
-        rejectionReason: text,
-        updatedAt: new Date().toISOString(),
-      };
-      setQuotations((prev) =>
-        prev.map((q) => (q.id === quotationId ? updated : q))
-      );
-      upsertQuotationToSupabase(updated);
-      addAuditLog(quotationId, 'REJECTED', `ส่งกลับแก้ไข: ${text}`);
-
-      showSuccessAlert('ส่งกลับแก้ไขเรียบร้อย', 'สถานะเอกสารถูกเปลี่ยนเป็นส่งกลับแก้ไข และแจ้งบุคลากรแล้ว');
-      return true;
+    if (error) {
+      setAuthError(error.message);
+      throw new Error(error.message);
     }
-    return false;
+
+    if (data.user) {
+      // Check if user is active (first user is active automatically, others need activation)
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const profile = await fetchProfileByAuthId(data.user.id);
+      if (profile && !profile.isActive) {
+        setPendingActivationEmail(email);
+      }
+    }
+  };
+
+  // Authentication: Sign Out
+  const signOut = async () => {
+    if (isSupabaseConfigured()) {
+      const sb = getSupabase();
+      await sb.auth.signOut();
+    }
+    setSession(null);
+    setAuthUser(null);
+    setActiveProfileUser(null);
+    setPreviewUserId(null);
+    setPendingActivationEmail(null);
+  };
+
+  // Selection actions
+  const switchUser = (userId: string) => {
+    setPreviewUserId(userId);
+  };
+
+  const switchOrganization = (orgId: string) => {
+    setCurrentOrgId(orgId);
+  };
+
+  const selectQuotation = (quotation: Quotation | null) => {
+    setSelectedQuotationId(quotation?.id || null);
+  };
+
+  // Quotation Management
+  const createQuotation = async (data: Partial<Quotation>): Promise<Quotation> => {
+    try {
+      const qNum = data.quotationNumber || (await nextQuotationNumber());
+      const newOrgId = data.orgId || currentOrg.id;
+
+      const quotationRow = {
+        quotation_number: qNum,
+        org_id: newOrgId,
+        customer_name: data.customerName || '',
+        customer_address: data.customerAddress || '',
+        customer_tax_id: data.customerTaxId || '',
+        customer_phone: data.customerPhone || '',
+        customer_email: data.customerEmail || '',
+        issue_date:
+          data.issueDate ||
+          new Date().toLocaleDateString('th-TH', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          }),
+        valid_until: data.validUntil || '30 วัน นับจากวันที่ออกเอกสาร',
+        subtotal: data.subtotal || 0,
+        discount_amount: data.discount || 0,
+        vat_percent: data.vatPercent !== undefined ? data.vatPercent : 7,
+        vat_amount: data.vatAmount || 0,
+        grand_total: data.grandTotal || 0,
+        payment_bank_name: data.paymentBankName || currentOrg.bankName,
+        payment_account_name: data.paymentAccountName || currentOrg.bankAccountName,
+        payment_account_number: data.paymentAccountNumber || currentOrg.bankAccountNumber,
+        notes: data.notes || '',
+        status: 'draft',
+        created_by: currentUser.id && currentUser.id !== 'guest' ? currentUser.id : null,
+        created_by_name: currentUser.fullName,
+        signatory_user_id: data.signatoryUserId || null,
+        signatory_name: data.signatoryName || null,
+        signatory_position: data.signatoryPosition || null,
+      };
+
+      const newId = await insertQuotation(quotationRow);
+
+      if (data.items && data.items.length > 0) {
+        await replaceQuotationItems(newId, data.items);
+      }
+
+      await insertAuditLog({
+        quotationId: newId,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        action: 'CREATED',
+        comment: `สร้างใบเสนอราคา ${qNum} สำหรับ ${data.customerName}`,
+      });
+
+      // Refresh list
+      const updatedQuotations = await fetchQuotations();
+      setQuotations(updatedQuotations);
+      const created = updatedQuotations.find((q) => q.id === newId);
+      if (created) {
+        setSelectedQuotationId(created.id);
+        return created;
+      }
+      throw new Error('ไม่พบข้อมูลเอกสารหลังการบันทึก');
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('สร้างใบเสนอราคาไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
+  };
+
+  const updateQuotation = async (id: string, data: Partial<Quotation>): Promise<void> => {
+    try {
+      const rowUpdates = quotationContentToRow(data);
+      await updateQuotationRow(id, rowUpdates);
+
+      if (data.items) {
+        await replaceQuotationItems(id, data.items);
+      }
+
+      await insertAuditLog({
+        quotationId: id,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        action: 'UPDATED',
+        comment: `แก้ไขข้อมูลใบเสนอราคา ยอดรวม ฿${(data.grandTotal || 0).toLocaleString()}`,
+      });
+
+      const updatedQuotations = await fetchQuotations();
+      setQuotations(updatedQuotations);
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('บันทึกการแก้ไขไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
+  };
+
+  const deleteQuotation = async (id: string): Promise<boolean> => {
+    const confirm = await showConfirmDialog(
+      'ยืนยันการลบใบเสนอราคา?',
+      'เอกสารและรายการสินค้าที่เกี่ยวข้องจะถูกลบออกจากฐานข้อมูลอย่างถาวร',
+      'ยืนยันการลบ',
+      'ยกเลิก'
+    );
+    if (!confirm.isConfirmed) return false;
+
+    try {
+      const q = quotations.find((it) => it.id === id);
+      await deleteQuotationRow(id);
+
+      await insertAuditLog({
+        quotationId: null,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        action: 'DELETED',
+        comment: `ลบใบเสนอราคาเลขที่ ${q?.quotationNumber || id}`,
+      });
+
+      const updatedQuotations = await fetchQuotations();
+      setQuotations(updatedQuotations);
+      if (selectedQuotationId === id) {
+        setSelectedQuotationId(updatedQuotations[0]?.id || null);
+      }
+      showSuccessAlert('ลบเอกสารสำเร็จ', 'ใบเสนอราคาถูกลบออกจากระบบเรียบร้อย');
+      return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('ลบใบเสนอราคาไม่สำเร็จ', msg);
+      return false;
+    }
+  };
+
+  const submitForApproval = async (
+    quotationId: string,
+    signatoryUserId: string
+  ): Promise<boolean> => {
+    try {
+      const signatory = users.find((u) => u.id === signatoryUserId);
+      if (!signatory) {
+        throw new Error('กรุณาเลือกผู้ลงนามที่มีอยู่ในระบบ');
+      }
+
+      const sb = getSupabase();
+      const { error } = await sb
+        .from('quotations')
+        .update({
+          status: 'pending_approval',
+          signatory_user_id: signatory.id,
+          signatory_name: signatory.fullName,
+          signatory_position: signatory.position,
+        })
+        .eq('id', quotationId);
+
+      if (error) throw error;
+
+      await insertAuditLog({
+        quotationId,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        action: 'SUBMITTED_FOR_APPROVAL',
+        comment: `ส่งเสนอพิจารณาอนุมัติไปยัง ${signatory.fullName} (${signatory.position})`,
+      });
+
+      const updated = await fetchQuotations();
+      setQuotations(updated);
+      showSuccessAlert('ส่งเสนออนุมัติสำเร็จ', `ส่งเรื่องถึง ${signatory.fullName} เรียบร้อยแล้ว`);
+      return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('ส่งเสนออนุมัติไม่สำเร็จ', msg);
+      return false;
+    }
+  };
+
+  const approveQuotation = async (
+    quotationId: string,
+    signatureDataUrl?: string
+  ): Promise<boolean> => {
+    try {
+      const sigUrl = signatureDataUrl || currentUser.signatureDataUrl;
+      if (!sigUrl) {
+        throw new Error('ไม่พบลายเซ็นดิจิทัล กรุณาวาดลายเซ็นก่อนอนุมัติ');
+      }
+
+      const sb = getSupabase();
+      const { error } = await sb
+        .from('quotations')
+        .update({
+          status: 'approved',
+          signature_data_url: sigUrl,
+          signed_at: new Date().toISOString(),
+          rejection_reason: null,
+        })
+        .eq('id', quotationId);
+
+      if (error) throw error;
+
+      await insertAuditLog({
+        quotationId,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        action: 'APPROVED',
+        comment: `อนุมัติและลงนามอิเล็กทรอนิกส์เรียบร้อย โดย ${currentUser.fullName}`,
+      });
+
+      const updated = await fetchQuotations();
+      setQuotations(updated);
+      showSuccessAlert('อนุมัติเอกสารเรียบร้อย', 'ใบเสนอราคาได้รับการลงนามดิจิทัลสมบูรณ์แล้ว');
+      return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('อนุมัติเอกสารไม่สำเร็จ', msg);
+      return false;
+    }
+  };
+
+  const rejectQuotation = async (quotationId: string, reason: string): Promise<boolean> => {
+    try {
+      const sb = getSupabase();
+      const { error } = await sb
+        .from('quotations')
+        .update({
+          status: 'rejected',
+          rejection_reason: reason,
+        })
+        .eq('id', quotationId);
+
+      if (error) throw error;
+
+      await insertAuditLog({
+        quotationId,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        action: 'REJECTED',
+        comment: `ส่งกลับแก้ไข: "${reason}"`,
+      });
+
+      const updated = await fetchQuotations();
+      setQuotations(updated);
+      showSuccessAlert('ส่งกลับแก้ไขเรียบร้อย', 'สถานะเอกสารถูกเปลี่ยนเป็นส่งกลับแก้ไขแล้ว');
+      return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('ส่งกลับเอกสารไม่สำเร็จ', msg);
+      return false;
+    }
   };
 
   // Products CRUD
-  const createProduct = async (productData: Omit<ProductItem, 'id' | 'createdAt'>) => {
-    const newProd: ProductItem = {
-      ...productData,
-      id: `prod-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setProducts((prev) => [newProd, ...prev]);
-    showSuccessAlert('เพิ่มสินค้าสำเร็จ!', `สินค้า ${newProd.name} ถูกเพิ่มเข้าสู่ระบบแล้ว`);
+  const createProduct = async (product: Omit<ProductItem, 'id' | 'createdAt'>) => {
+    try {
+      await insertProduct(product);
+      const updated = await fetchProducts();
+      setProducts(updated);
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('เพิ่มสินค้าไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
   };
 
-  const updateProduct = async (id: string, prodData: Partial<ProductItem>) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...prodData } : p))
-    );
-    showSuccessAlert('อัปเดตสินค้าเรียบร้อย', 'ข้อมูลสินค้าถูกบันทึกแล้ว');
+  const updateProduct = async (id: string, product: Partial<ProductItem>) => {
+    try {
+      await updateProductRow(id, product);
+      const updated = await fetchProducts();
+      setProducts(updated);
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('แก้ไขสินค้าไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
   };
 
   const deleteProduct = async (id: string): Promise<boolean> => {
-    const target = products.find((p) => p.id === id);
-    if (!target) return false;
-
-    const res = await showConfirmDialog(
+    const confirm = await showConfirmDialog(
       'ยืนยันการลบสินค้า?',
-      `ต้องการลบสินค้า "${target.name}" (รหัส: ${target.sku}) ใช่หรือไม่?`,
-      'ลบสินค้า'
+      'สินค้านี้จะถูกนำออกจากรายการสินค้าของระบบ',
+      'ลบสินค้า',
+      'ยกเลิก'
     );
-    if (res.isConfirmed) {
-      setProducts((prev) => prev.filter((p) => p.id !== id));
-      showSuccessAlert('ลบสินค้าสำเร็จ', `สินค้า ${target.name} ถูกลบออกจากระบบแล้ว`);
+    if (!confirm.isConfirmed) return false;
+
+    try {
+      await deleteProductRow(id);
+      const updated = await fetchProducts();
+      setProducts(updated);
+      showSuccessAlert('ลบสินค้าสำเร็จ', 'ลบรายการสินค้าเรียบร้อย');
       return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('ลบสินค้าไม่สำเร็จ', msg);
+      return false;
     }
-    return false;
   };
 
-  // User Management
-  const createUser = async (userData: Omit<AppUser, 'id' | 'createdAt'>) => {
-    const newUser: AppUser = {
-      ...userData,
-      id: `user-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setUsers((prev) => [...prev, newUser]);
-    showSuccessAlert('สร้างผู้ใช้งานสำเร็จ!', `เพิ่มบุคลากร ${newUser.fullName} ในตำแหน่ง ${newUser.position} เรียบร้อย`);
+  // Organizations CRUD
+  const createOrganization = async (org: Omit<Organization, 'id' | 'createdAt'>) => {
+    try {
+      const created = await insertOrganization(org);
+      const updated = await fetchOrganizations();
+      setOrganizations(updated);
+      setCurrentOrgId(created.id);
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('เพิ่มองค์กรไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
   };
 
-  const updateUser = async (id: string, userData: Partial<AppUser>) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, ...userData } : u))
+  const updateOrganization = async (id: string, org: Partial<Organization>) => {
+    try {
+      await updateOrganizationRow(id, org);
+      const updated = await fetchOrganizations();
+      setOrganizations(updated);
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('แก้ไของค์กรไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
+  };
+
+  const deleteOrganization = async (id: string): Promise<boolean> => {
+    if (organizations.length <= 1) {
+      showErrorAlert('ไม่สามารถลบได้', 'ระบบต้องมีองค์กรอย่างน้อย 1 แห่ง');
+      return false;
+    }
+
+    const confirm = await showConfirmDialog(
+      'ยืนยันการลบองค์กร?',
+      'ข้อมูลองค์กรนี้จะถูกลบออกจากระบบ',
+      'ลบองค์กร',
+      'ยกเลิก'
     );
-    showSuccessAlert('อัปเดตผู้ใช้งานเรียบร้อย', 'ข้อมูลผู้ใช้งานและสิทธิ์ถูกปรับปรุงแล้ว');
+    if (!confirm.isConfirmed) return false;
+
+    try {
+      await deleteOrganizationRow(id);
+      const updated = await fetchOrganizations();
+      setOrganizations(updated);
+      if (currentOrgId === id) {
+        setCurrentOrgId(updated[0]?.id || 'org-default');
+      }
+      showSuccessAlert('ลบองค์กรสำเร็จ', 'ลบข้อมูลองค์กรเรียบร้อย');
+      return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('ลบองค์กรไม่สำเร็จ', msg);
+      return false;
+    }
+  };
+
+  // Users CRUD
+  const createUser = async (user: Omit<AppUser, 'id' | 'createdAt'>) => {
+    try {
+      // Try calling admin API first if service role key is available
+      try {
+        await adminUsersApi('POST', {
+          email: user.email,
+          password: 'Password123!',
+          fullName: user.fullName,
+          username: user.username,
+          role: user.role,
+          department: user.department,
+          position: user.position,
+          phone: user.phone,
+          canSign: user.canSign,
+          maxApprovalAmount: user.maxApprovalAmount,
+          isActive: user.isActive,
+        });
+      } catch (adminErr) {
+        console.warn('adminUsersApi POST failed, attempting direct insert into app_users:', adminErr);
+        // Fallback: direct insert into app_users for admin
+        const sb = getSupabase();
+        const { error: insertErr } = await sb.from('app_users').insert({
+          username: user.username,
+          full_name: user.fullName,
+          email: user.email,
+          role: user.role,
+          department: user.department,
+          position: user.position,
+          phone: user.phone,
+          can_sign: user.canSign,
+          max_approval_amount: user.maxApprovalAmount,
+          is_active: user.isActive,
+        });
+        if (insertErr) throw insertErr;
+      }
+
+      const updated = await fetchUsers();
+      setUsers(updated);
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('เพิ่มผู้ใช้ไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
+  };
+
+  const updateUser = async (id: string, user: Partial<AppUser>) => {
+    try {
+      await updateAppUserRow(id, user);
+      const updated = await fetchUsers();
+      setUsers(updated);
+      if (activeProfileUser?.id === id) {
+        const refreshed = updated.find((u) => u.id === id);
+        if (refreshed) setActiveProfileUser(refreshed);
+      }
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('แก้ไขผู้ใช้ไม่สำเร็จ', msg);
+      throw new Error(msg);
+    }
   };
 
   const deleteUser = async (id: string): Promise<boolean> => {
     const target = users.find((u) => u.id === id);
     if (!target) return false;
+
     if (target.id === currentUser.id) {
-      showErrorAlert('ไม่อนุญาต', 'ไม่สามารถลบบัญชีที่กำลังใช้งานอยู่ได้');
+      showErrorAlert('ไม่สามารถลบได้', 'ไม่สามารถลบบัญชีของตนเองที่กำลังเข้าสู่ระบบอยู่ได้');
       return false;
     }
 
-    const res = await showConfirmDialog(
-      'ยืนยันการลบผู้ใช้งาน?',
-      `ต้องการลบบุคลากร "${target.fullName}" ตำแหน่ง ${target.position} ใช่หรือไม่?`,
-      'ลบผู้ใช้งาน'
+    const confirm = await showConfirmDialog(
+      'ยืนยันการลบผู้ใช้?',
+      `ผู้ใช้ ${target.fullName} จะถูกลบออกจากระบบ`,
+      'ลบผู้ใช้',
+      'ยกเลิก'
     );
-    if (res.isConfirmed) {
-      setUsers((prev) => prev.filter((u) => u.id !== id));
-      showSuccessAlert('ลบผู้ใช้งานสำเร็จ', `บุคลากร ${target.fullName} ถูกนำออกจากระบบแล้ว`);
+    if (!confirm.isConfirmed) return false;
+
+    try {
+      if (target.authUserId) {
+        try {
+          await adminUsersApi('DELETE', { authUserId: target.authUserId, id: target.id });
+        } catch {
+          const sb = getSupabase();
+          await sb.from('app_users').delete().eq('id', id);
+        }
+      } else {
+        const sb = getSupabase();
+        await sb.from('app_users').delete().eq('id', id);
+      }
+
+      const updated = await fetchUsers();
+      setUsers(updated);
+      showSuccessAlert('ลบผู้ใช้สำเร็จ', 'ลบข้อมูลผู้ใช้งานเรียบร้อย');
       return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('ลบผู้ใช้ไม่สำเร็จ', msg);
+      return false;
     }
-    return false;
   };
 
   const updateUserSignature = async (userId: string, signatureDataUrl: string) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, signatureDataUrl, canSign: true } : u))
-    );
-    showSuccessAlert('บันทึกลายมือชื่อดิจิทัลสำเร็จ', 'ลายมือชื่อถูกผูกเข้ากับบัญชีผู้ลงนามเรียบร้อยแล้ว');
-  };
-
-  // Organization Management
-  const createOrganization = async (orgData: Omit<Organization, 'id' | 'createdAt'>) => {
-    const newOrg: Organization = {
-      ...orgData,
-      id: `org-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setOrganizations((prev) => [...prev, newOrg]);
-    showSuccessAlert('สร้างข้อมูลองค์กร/ช่องสำเร็จ!', `เพิ่มช่อง/ร้านค้า "${newOrg.name}" เรียบร้อย`);
-  };
-
-  const updateOrganization = async (id: string, orgData: Partial<Organization>) => {
-    setOrganizations((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, ...orgData } : o))
-    );
-    showSuccessAlert('อัปเดตข้อมูลองค์กรเรียบร้อย', 'ข้อมูลร้านค้าและช่องสตรีมเมอร์ถูกบันทึกแล้ว');
-  };
-
-  const deleteOrganization = async (id: string): Promise<boolean> => {
-    if (organizations.length <= 1) {
-      showErrorAlert('ไม่อนุญาต', 'ระบบต้องมีองค์กร/ร้านค้าหลักอย่างน้อย 1 รายการ');
-      return false;
-    }
-    const target = organizations.find((o) => o.id === id);
-    if (!target) return false;
-
-    const res = await showConfirmDialog(
-      'ยืนยันการลบองค์กร/ช่อง?',
-      `ต้องการลบช่อง/ร้านค้า "${target.name}" ใช่หรือไม่?`,
-      'ลบองค์กร'
-    );
-    if (res.isConfirmed) {
-      setOrganizations((prev) => prev.filter((o) => o.id !== id));
-      if (currentOrgId === id) {
-        const remaining = organizations.filter((o) => o.id !== id);
-        setCurrentOrgId(remaining[0].id);
+    try {
+      await updateAppUserRow(userId, { signatureDataUrl });
+      const updated = await fetchUsers();
+      setUsers(updated);
+      if (activeProfileUser?.id === userId) {
+        setActiveProfileUser((prev) => (prev ? { ...prev, signatureDataUrl } : prev));
       }
-      showSuccessAlert('ลบองค์กรสำเร็จ', `องค์กร "${target.name}" ถูกลบแล้ว`);
-      return true;
+    } catch (err: unknown) {
+      const msg = dbErrorMessage(err);
+      showErrorAlert('บันทึกลายเซ็นไม่สำเร็จ', msg);
+      throw new Error(msg);
     }
-    return false;
   };
 
   const resetToDefaults = () => {
-    Swal.fire({
-      title: 'รีเซ็ตข้อมูลเป็นค่าเริ่มต้น?',
-      text: 'ข้อมูลใบเสนอราคา สินค้า และผู้ใช้จะถูกรีเซ็ตกลับเป็นค่าเริ่มต้นมาตรฐาน',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'รีเซ็ตข้อมูล',
-      cancelButtonText: 'ยกเลิก',
-      confirmButtonColor: '#dc2626',
-      cancelButtonColor: '#64748b',
-      background: '#ffffff',
-      color: '#0f172a',
-      customClass: {
-        popup: 'border border-slate-200 shadow-xl rounded-2xl',
-      },
-    }).then((res) => {
-      if (res.isConfirmed) {
-        localStorage.removeItem(STORAGE_KEY);
-        setOrganizations(INITIAL_ORGS);
-        setUsers(INITIAL_USERS);
-        setProducts(INITIAL_PRODUCTS);
-        setQuotations(INITIAL_QUOTATIONS);
-        setAuditLogs(INITIAL_LOGS);
-        setCurrentUserId('user-admin');
-        setCurrentOrgId('org-playch');
-        setSelectedQuotationId('quot-sample-01');
-        showSuccessAlert('รีเซ็ตสำเร็จ', 'ข้อมูลระบบถูกรีเซ็ตกลับสู่สถานะตั้งต้นเรียบร้อย');
-      }
-    });
+    reloadFromSupabase();
   };
+
+  const isAuthenticated = Boolean(session && activeProfileUser && activeProfileUser.isActive);
 
   return (
     <QuotationStoreContext.Provider
@@ -993,29 +913,46 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
         products,
         quotations,
         auditLogs,
-        currentUser,
         currentOrg,
+        currentUser,
         selectedQuotation,
+
+        session,
+        authUser,
+        isAuthenticated,
+        isAuthLoading,
+        authError,
+        pendingActivationEmail,
+        signIn,
+        signUp,
+        signOut,
+
         switchUser,
         switchOrganization,
         selectQuotation,
+
         createQuotation,
         updateQuotation,
         deleteQuotation,
         submitForApproval,
         approveQuotation,
         rejectQuotation,
+
         createProduct,
         updateProduct,
         deleteProduct,
+
         createUser,
         updateUser,
         deleteUser,
         updateUserSignature,
+
         createOrganization,
         updateOrganization,
         deleteOrganization,
+
         isSupabaseActive,
+        isLoadingData,
         reloadFromSupabase,
         resetToDefaults,
       }}
@@ -1025,7 +962,7 @@ export function QuotationStoreProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useQuotationStore() {
+export function useQuotationStore(): QuotationStoreContextType {
   const context = useContext(QuotationStoreContext);
   if (!context) {
     throw new Error('useQuotationStore must be used within a QuotationStoreProvider');
