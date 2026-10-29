@@ -504,9 +504,9 @@ export default function QuotationDocumentView({
 
         {/* BOTTOM FOOTER BAR */}
         <div className="w-full rounded-xl p-4 mt-6 bg-slate-50 border border-slate-200 text-slate-700">
-          <div className="grid grid-cols-1 md:grid-cols-12 items-center gap-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-4 text-xs">
             {/* Logo & Company Name */}
-            <div className="md:col-span-4 flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div className="w-8 h-8 rounded-lg overflow-hidden bg-white border border-slate-200 p-0.5 flex-shrink-0">
                 <img
                   src={organization.logoUrl || '/logos/playch-logo.png'}
@@ -514,35 +514,49 @@ export default function QuotationDocumentView({
                   className="w-full h-full object-contain"
                 />
               </div>
-              <div>
-                <span className="font-bold text-slate-900">
+              <div className="min-w-0">
+                <span className="font-bold text-slate-900 block truncate">
                   {organization.name}
                 </span>
-                <p className="text-[11px] text-slate-500">{organization.legalName || ''}</p>
+                <p className="text-[11px] text-slate-500 truncate">{organization.legalName || ''}</p>
               </div>
             </div>
 
             {/* Email & Website */}
-            <div className="md:col-span-4 space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">อีเมล:</span>
-                <span className="font-medium text-slate-700">{organization.email}</span>
+            <div className="space-y-1 min-w-0 text-[11px]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-slate-400 shrink-0">อีเมล:</span>
+                <span className="font-medium text-slate-700 truncate" title={organization.email}>
+                  {organization.email}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">เว็บไซต์:</span>
-                <span className="font-medium text-slate-700">{organization.website}</span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-slate-400 shrink-0">เว็บไซต์:</span>
+                <a
+                  href={organization.website?.startsWith('http') ? organization.website : `https://${organization.website}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-blue-600 hover:underline truncate"
+                  title={organization.website}
+                >
+                  {organization.website}
+                </a>
               </div>
             </div>
 
             {/* Phone & Address */}
-            <div className="md:col-span-4 space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">โทร:</span>
-                <span className="font-medium text-slate-700">{organization.phone}</span>
+            <div className="space-y-1 min-w-0 text-[11px]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-slate-400 shrink-0">โทร:</span>
+                <span className="font-medium text-slate-700 truncate" title={organization.phone}>
+                  {organization.phone}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">ที่อยู่:</span>
-                <span className="font-medium text-slate-700 truncate">{organization.address}</span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-slate-400 shrink-0">ที่อยู่:</span>
+                <span className="font-medium text-slate-700 truncate" title={organization.address}>
+                  {organization.address}
+                </span>
               </div>
             </div>
           </div>
