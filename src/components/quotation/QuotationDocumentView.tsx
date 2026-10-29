@@ -19,10 +19,12 @@ import {
   CreditCard,
   Edit2,
   History,
+  Loader2,
 } from 'lucide-react';
 import { Quotation, Organization } from '@/types/quotation';
 import { useQuotationStore } from '@/lib/quotation-store';
 import { exportQuotationToWord } from '@/lib/word-exporter';
+import { exportQuotationToPdf } from '@/lib/pdf-exporter';
 import SignaturePadModal from './SignaturePadModal';
 import Swal from 'sweetalert2';
 
@@ -48,12 +50,47 @@ export default function QuotationDocumentView({
   } = useQuotationStore();
 
   const [isSignModalOpen, setIsSignModalOpen] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const formatMoney = (val: number) => {
     return val.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const handlePrintPdf = () => {
+  // ส่งออกเป็นไฟล์ PDF โดยตรง (A4 1 หน้า ไม่ผ่าน Print Dialog ของ Browser จึงไม่มี URL / วันที่ / หัวเว็บ)
+  const handleExportPdf = async () => {
+    try {
+      setIsExportingPdf(true);
+      await exportQuotationToPdf('quotation-print-area', quotation.quotationNumber);
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'ดาวน์โหลด PDF สำเร็จ',
+        text: `ไฟล์ PDF ขนาด A4 1 หน้า (เลขที่ ${quotation.quotationNumber}) ถูกบันทึกเรียบร้อย`,
+        showConfirmButton: false,
+        timer: 3000,
+        background: '#ffffff',
+        color: '#0f172a',
+        customClass: {
+          popup: 'border border-slate-200 shadow-lg rounded-xl',
+        },
+      });
+    } catch (err: unknown) {
+      console.error('PDF export error:', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'ส่งออก PDF ไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการสร้างไฟล์ PDF',
+        background: '#ffffff',
+        color: '#0f172a',
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  // พิมพ์ออกเครื่องพิมพ์โดยตรง (ตัดหัวเว็บและฟุตเตอร์ออกอัตโนมัติด้วย CSS @page)
+  const handlePrintPhysical = () => {
     window.print();
   };
 
@@ -184,18 +221,32 @@ export default function QuotationDocumentView({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 shadow-xs transition"
           >
             <FileDown className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden sm:inline">ส่งออก Word (.doc)</span>
-            <span className="sm:hidden">Word</span>
+            <span className="hidden sm:inline">ส่งออก Word</span>
           </button>
 
-          {/* Print / Export to PDF */}
+          {/* Direct PDF Download (A4 1 Page) */}
           <button
-            onClick={handlePrintPdf}
-            title="สั่งพิมพ์หรือบันทึกเป็น PDF"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            title="ดาวน์โหลดเป็นไฟล์ PDF ขนาด A4 1 หน้ากระดาษทันที โดยไม่มีข้อมูลลิงก์หรือหัวเว็บของเบราว์เซอร์"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>พิมพ์ / PDF</span>
+            {isExportingPdf ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5" />
+            )}
+            <span>{isExportingPdf ? 'กำลังสร้าง PDF...' : 'ดาวน์โหลด PDF (A4)'}</span>
+          </button>
+
+          {/* Print to paper */}
+          <button
+            onClick={handlePrintPhysical}
+            title="พิมพ์เอกสารออกเครื่องพิมพ์โดยตรง (ตัดหัวเว็บและฟุตเตอร์ออกอัตโนมัติ)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium border border-slate-300 shadow-xs transition"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden md:inline">พิมพ์ออกกระดาษ</span>
           </button>
 
           {onViewAudit && (
@@ -242,18 +293,18 @@ export default function QuotationDocumentView({
       )}
 
       {/* ======================================================== */}
-      {/* THE QUOTATION SHEET (CLEAN, WHITE BUSINESS DOCUMENT)     */}
+      {/* THE QUOTATION SHEET (CLEAN, COMPACT A4 1-PAGE DOCUMENT)  */}
       {/* ======================================================== */}
       <div
         id="quotation-print-area"
-        className="w-full max-w-[850px] min-h-[1100px] p-8 md:p-12 transition-all flex flex-col justify-between shadow-sm border border-slate-200 bg-white text-slate-900 rounded-xl relative select-text print:p-0 print:shadow-none print:border-none print:w-full print:max-w-none print:rounded-none"
+        className="w-full max-w-[800px] p-6 sm:p-7 bg-white text-slate-900 border border-slate-200 shadow-sm rounded-xl flex flex-col justify-between text-xs select-text print:p-0 print:border-none print:shadow-none print:w-full print:rounded-none"
       >
         <div>
           {/* HEADER ROW */}
-          <div className="flex flex-col sm:flex-row items-start justify-between pb-8 border-b border-slate-200 gap-4">
+          <div className="flex flex-col sm:flex-row items-start justify-between pb-3 mb-3 border-b border-slate-200 gap-3">
             {/* Organization Identity */}
-            <div className="flex items-start gap-4">
-              <div className="relative w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center p-1 bg-white border border-slate-200 shadow-xs flex-shrink-0">
+            <div className="flex items-start gap-3">
+              <div className="relative w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center p-1 bg-white border border-slate-200 shadow-xs flex-shrink-0">
                 <img
                   src={organization.logoUrl || '/logos/playch-logo.png'}
                   alt={organization.name}
@@ -262,16 +313,16 @@ export default function QuotationDocumentView({
               </div>
 
               <div>
-                <h2 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
+                <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 leading-tight">
                   {organization.name}
                 </h2>
-                <p className="text-xs text-slate-600 mt-0.5">
+                <p className="text-[11px] text-slate-500 mt-0.5">
                   {organization.legalName || organization.tagline || 'ระบบบริการสื่อมีเดียและการจัดการ'}
                 </p>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                <p className="text-[11px] text-slate-600 mt-0.5 max-w-sm leading-snug">
                   {organization.address}
                 </p>
-                <div className="mt-1.5 flex items-center gap-2 text-xs font-mono text-slate-700">
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono text-slate-700">
                   <span className="font-semibold text-slate-500">เลขประจำตัวผู้เสียภาษี:</span>
                   <span>{organization.taxId}</span>
                 </div>
@@ -280,108 +331,108 @@ export default function QuotationDocumentView({
 
             {/* Title Section (ใบเสนอราคา / Quotation) */}
             <div className="text-left sm:text-right flex-shrink-0">
-              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 leading-tight">
                 ใบเสนอราคา
               </h1>
-              <h3 className="text-lg md:text-xl font-bold tracking-tight text-slate-500 mt-0.5">
+              <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase mt-0.5">
                 QUOTATION
               </h3>
-              <div className="mt-2.5 inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-xs font-mono">
-                <span className="text-slate-500">เลขที่:</span>
+              <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-xs font-mono">
+                <span className="text-slate-500 text-[11px]">เลขที่:</span>
                 <span className="font-bold text-slate-900">{quotation.quotationNumber}</span>
               </div>
             </div>
           </div>
 
           {/* CUSTOMER & DATE INFO BLOCK */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 py-6 border-b border-slate-200 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-3 text-xs">
             {/* Customer Details (Left 8 Cols) */}
-            <div className="md:col-span-8 bg-slate-50/70 border border-slate-200/80 rounded-xl p-4 space-y-2">
+            <div className="md:col-span-8 bg-slate-50/80 border border-slate-200/80 rounded-lg p-2.5 space-y-1">
               <div className="grid grid-cols-12 items-baseline">
-                <span className="col-span-3 text-xs font-semibold text-slate-500">
+                <span className="col-span-3 text-[11px] font-semibold text-slate-500">
                   ชื่อลูกค้า
                 </span>
-                <span className="col-span-9 font-bold text-slate-900 text-base">
+                <span className="col-span-9 font-bold text-slate-900 text-sm">
                   {quotation.customerName}
                 </span>
               </div>
 
               <div className="grid grid-cols-12 items-baseline">
-                <span className="col-span-3 text-xs font-semibold text-slate-500">
+                <span className="col-span-3 text-[11px] font-semibold text-slate-500">
                   ที่อยู่
                 </span>
-                <span className="col-span-9 text-xs text-slate-700 leading-relaxed">
+                <span className="col-span-9 text-[11px] text-slate-700 leading-snug">
                   {quotation.customerAddress || '-'}
                 </span>
               </div>
 
               <div className="grid grid-cols-12 items-baseline">
-                <span className="col-span-3 text-xs font-semibold text-slate-500">
+                <span className="col-span-3 text-[11px] font-semibold text-slate-500">
                   เลขผู้เสียภาษี
                 </span>
-                <span className="col-span-9 text-xs font-mono text-slate-700">
+                <span className="col-span-9 text-[11px] font-mono text-slate-700">
                   {quotation.customerTaxId || '-'}
                 </span>
               </div>
 
               <div className="grid grid-cols-12 items-baseline">
-                <span className="col-span-3 text-xs font-semibold text-slate-500">
+                <span className="col-span-3 text-[11px] font-semibold text-slate-500">
                   เบอร์โทรศัพท์
                 </span>
-                <span className="col-span-9 text-xs text-slate-700">
+                <span className="col-span-9 text-[11px] text-slate-700">
                   {quotation.customerPhone || '-'}
                 </span>
               </div>
             </div>
 
             {/* Date Details (Right 4 Cols) */}
-            <div className="md:col-span-4 bg-slate-50/70 border border-slate-200/80 rounded-xl p-4 flex flex-col justify-center space-y-2">
+            <div className="md:col-span-4 bg-slate-50/80 border border-slate-200/80 rounded-lg p-2.5 flex flex-col justify-center space-y-1.5">
               <div>
-                <span className="text-xs font-semibold text-slate-500 block">วันที่ออกเอกสาร</span>
-                <strong className="text-sm md:text-base font-bold text-slate-900">
+                <span className="text-[10px] font-semibold text-slate-500 block uppercase">วันที่ออกเอกสาร</span>
+                <strong className="text-xs sm:text-sm font-bold text-slate-900">
                   {quotation.issueDate}
                 </strong>
               </div>
               {quotation.validUntil && (
-                <div className="pt-2 border-t border-slate-200/60">
-                  <span className="text-xs font-semibold text-slate-500 block">กำหนดยืนราคา</span>
-                  <span className="text-xs font-medium text-slate-800">{quotation.validUntil}</span>
+                <div className="pt-1.5 border-t border-slate-200/60">
+                  <span className="text-[10px] font-semibold text-slate-500 block uppercase">กำหนดยืนราคา</span>
+                  <span className="text-[11px] font-medium text-slate-800">{quotation.validUntil}</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* TABLE OF ITEMS (Columns: ลำดับ, รายการสินค้า, จำนวน, ราคา/หน่วย, ราคารวม) */}
-          <div className="mt-6 mb-8 overflow-x-auto">
+          {/* TABLE OF ITEMS */}
+          <div className="mb-3 overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-100/80 border-y border-slate-200 text-xs uppercase font-bold text-slate-700">
-                  <th className="py-3 px-3 text-center w-12">ลำดับ</th>
-                  <th className="py-3 px-4">รายการสินค้า / บริการ</th>
-                  <th className="py-3 px-4 text-center w-20">จำนวน</th>
-                  <th className="py-3 px-4 text-right w-32">ราคา/หน่วย</th>
-                  <th className="py-3 px-4 text-right w-36">ราคารวม</th>
+                <tr className="bg-slate-100/90 border-y border-slate-200 text-[11px] uppercase font-bold text-slate-700">
+                  <th className="py-2 px-2.5 text-center w-10">ลำดับ</th>
+                  <th className="py-2 px-3">รายการสินค้า / บริการ</th>
+                  <th className="py-2 px-3 text-center w-16">จำนวน</th>
+                  <th className="py-2 px-3 text-right w-28">ราคา/หน่วย</th>
+                  <th className="py-2 px-3 text-right w-32">ราคารวม</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+              <tbody className="divide-y divide-slate-100 text-xs">
                 {quotation.items.map((item, idx) => (
                   <tr
                     key={item.id}
                     className="hover:bg-slate-50/50 transition-colors"
                   >
-                    <td className="py-3.5 px-3 text-center font-mono text-xs text-slate-500">
+                    <td className="py-2 px-2.5 text-center font-mono text-[11px] text-slate-500">
                       {idx + 1}
                     </td>
-                    <td className="py-3.5 px-4 font-medium text-slate-900">
+                    <td className="py-2 px-3 font-medium text-slate-900">
                       {item.name}
                     </td>
-                    <td className="py-3.5 px-4 text-center font-mono text-slate-700">
+                    <td className="py-2 px-3 text-center font-mono text-slate-700">
                       {item.quantity}
                     </td>
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-700">
+                    <td className="py-2 px-3 text-right font-mono text-slate-700">
                       {formatMoney(item.unitPrice)}.-
                     </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-semibold text-slate-900">
+                    <td className="py-2 px-3 text-right font-mono font-semibold text-slate-900">
                       {formatMoney(item.totalPrice)}.-
                     </td>
                   </tr>
@@ -391,35 +442,35 @@ export default function QuotationDocumentView({
           </div>
 
           {/* BOTTOM SUMMARY & PAYMENT CHANNEL */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 pt-4 pb-8 border-t-2 border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-3 pb-3 border-t border-slate-200">
             {/* Payment Channel (Left 6 Cols) */}
-            <div className="md:col-span-6 bg-slate-50/80 border border-slate-200/80 rounded-xl p-4 space-y-2">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+            <div className="md:col-span-6 bg-slate-50/80 border border-slate-200/80 rounded-lg p-2.5 space-y-1 text-xs">
+              <h4 className="text-[11px] font-bold text-slate-900 uppercase tracking-wider">
                 ช่องทางการชำระเงิน
               </h4>
-              <div className="space-y-1 text-xs">
+              <div className="space-y-0.5 text-[11px]">
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-500 w-20">ธนาคาร:</span>
+                  <span className="text-slate-500 w-16 shrink-0">ธนาคาร:</span>
                   <span className="font-semibold text-slate-800">
                     {quotation.paymentBankName || organization.bankName}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-500 w-20">ชื่อบัญชี:</span>
+                  <span className="text-slate-500 w-16 shrink-0">ชื่อบัญชี:</span>
                   <span className="font-semibold text-slate-800">
                     {quotation.paymentAccountName || organization.bankAccountName}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-500 w-20">เลขที่บัญชี:</span>
-                  <span className="font-mono font-bold text-sm text-slate-900">
+                  <span className="text-slate-500 w-16 shrink-0">เลขที่บัญชี:</span>
+                  <span className="font-mono font-bold text-xs text-slate-900">
                     {quotation.paymentAccountNumber || organization.bankAccountNumber}
                   </span>
                 </div>
               </div>
 
               {quotation.notes && (
-                <div className="mt-3 pt-2.5 border-t border-slate-200 text-xs">
+                <div className="mt-2 pt-1.5 border-t border-slate-200 text-[10px] leading-tight">
                   <span className="font-semibold text-slate-500">หมายเหตุ: </span>
                   <span className="text-slate-700">{quotation.notes}</span>
                 </div>
@@ -427,15 +478,15 @@ export default function QuotationDocumentView({
             </div>
 
             {/* Calculations & Grand Total Pill (Right 6 Cols) */}
-            <div className="md:col-span-6 space-y-2.5">
-              <div className="flex justify-between items-center text-xs">
+            <div className="md:col-span-6 space-y-1 text-xs">
+              <div className="flex justify-between items-center text-[11px]">
                 <span className="text-slate-600">ราคารวม (Subtotal)</span>
                 <span className="font-mono font-semibold text-slate-800">
                   {formatMoney(quotation.subtotal)}.-
                 </span>
               </div>
 
-              <div className="flex justify-between items-center text-xs">
+              <div className="flex justify-between items-center text-[11px]">
                 <span className="text-slate-600">
                   ภาษีมูลค่าเพิ่ม ({quotation.vatPercent}%)
                 </span>
@@ -445,7 +496,7 @@ export default function QuotationDocumentView({
               </div>
 
               {quotation.discount > 0 && (
-                <div className="flex justify-between items-center text-xs">
+                <div className="flex justify-between items-center text-[11px]">
                   <span className="text-rose-600">ส่วนลด</span>
                   <span className="font-mono font-semibold text-rose-600">
                     -{formatMoney(quotation.discount)}.-
@@ -454,10 +505,10 @@ export default function QuotationDocumentView({
               )}
 
               {/* GRAND TOTAL CONTAINER */}
-              <div className="pt-2">
-                <div className="flex justify-between items-center px-5 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 font-bold">
-                  <span className="text-xs md:text-sm font-semibold">จำนวนเงินรวมทั้งสิ้น</span>
-                  <span className="text-lg md:text-xl font-extrabold font-mono">
+              <div className="pt-1">
+                <div className="flex justify-between items-center px-3.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 font-bold">
+                  <span className="text-xs font-semibold">จำนวนเงินรวมทั้งสิ้น</span>
+                  <span className="text-base sm:text-lg font-extrabold font-mono">
                     ฿{formatMoney(quotation.grandTotal)}
                   </span>
                 </div>
@@ -466,34 +517,34 @@ export default function QuotationDocumentView({
           </div>
 
           {/* SIGNATURE SECTION */}
-          <div className="mt-10 mb-6 flex justify-end">
-            <div className="text-center min-w-[260px] space-y-1">
+          <div className="my-2.5 flex justify-end">
+            <div className="text-center min-w-[220px] space-y-0.5">
               {/* Electronic Signature or Drawing */}
-              <div className="h-16 flex items-center justify-center relative">
+              <div className="h-12 flex items-center justify-center relative">
                 {quotation.signatureDataUrl ? (
                   <img
                     src={quotation.signatureDataUrl}
                     alt="Authorized Signature"
-                    className="max-h-16 max-w-[200px] object-contain"
+                    className="max-h-12 max-w-[180px] object-contain"
                   />
                 ) : (
-                  <span className="text-xs italic text-slate-400">
+                  <span className="text-[11px] italic text-slate-400">
                     (รอลงนามโดยผู้มีอำนาจ)
                   </span>
                 )}
               </div>
 
               {/* Dotted underline */}
-              <div className="border-b border-slate-300 w-full my-1.5" />
+              <div className="border-b border-slate-300 w-full my-1" />
 
-              <p className="font-bold text-sm text-slate-900">
+              <p className="font-bold text-xs text-slate-900">
                 ({quotation.signatoryName || 'อดิตรา มอนด์บีนี'})
               </p>
-              <p className="text-xs font-medium text-slate-500">
+              <p className="text-[11px] font-medium text-slate-500">
                 {quotation.signatoryPosition || 'ผู้จัดการ'}
               </p>
               {quotation.signedAt && (
-                <p className="text-[11px] text-emerald-700 font-medium mt-0.5 flex items-center justify-center gap-1">
+                <p className="text-[10px] text-emerald-700 font-medium mt-0.5 flex items-center justify-center gap-1">
                   <CheckCircle className="w-3 h-3 text-emerald-600" />
                   ลงนามดิจิทัลเมื่อ: {new Date(quotation.signedAt).toLocaleDateString('th-TH')}
                 </p>
@@ -503,11 +554,11 @@ export default function QuotationDocumentView({
         </div>
 
         {/* BOTTOM FOOTER BAR */}
-        <div className="w-full rounded-xl p-4 mt-6 bg-slate-50 border border-slate-200 text-slate-700">
-          <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-4 text-xs">
+        <div className="w-full rounded-lg p-2.5 mt-2 bg-slate-50 border border-slate-200 text-slate-700">
+          <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-3 text-[11px]">
             {/* Logo & Company Name */}
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-8 h-8 rounded-lg overflow-hidden bg-white border border-slate-200 p-0.5 flex-shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-md overflow-hidden bg-white border border-slate-200 p-0.5 flex-shrink-0">
                 <img
                   src={organization.logoUrl || '/logos/playch-logo.png'}
                   alt={organization.name}
@@ -515,15 +566,15 @@ export default function QuotationDocumentView({
                 />
               </div>
               <div className="min-w-0">
-                <span className="font-bold text-slate-900 block truncate">
+                <span className="font-bold text-slate-900 block truncate text-xs">
                   {organization.name}
                 </span>
-                <p className="text-[11px] text-slate-500 truncate">{organization.legalName || ''}</p>
+                <p className="text-[10px] text-slate-500 truncate">{organization.legalName || ''}</p>
               </div>
             </div>
 
             {/* Email & Website */}
-            <div className="space-y-1 min-w-0 text-[11px]">
+            <div className="space-y-0.5 min-w-0 text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-slate-400 shrink-0">อีเมล:</span>
                 <span className="font-medium text-slate-700 truncate" title={organization.email}>
@@ -545,7 +596,7 @@ export default function QuotationDocumentView({
             </div>
 
             {/* Phone & Address */}
-            <div className="space-y-1 min-w-0 text-[11px]">
+            <div className="space-y-0.5 min-w-0 text-[10px]">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-slate-400 shrink-0">โทร:</span>
                 <span className="font-medium text-slate-700 truncate" title={organization.phone}>

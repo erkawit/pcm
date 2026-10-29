@@ -34,31 +34,42 @@ body {
 }
 
 /* ======================================================== */
-/* PRINT STYLING FOR QUOTATION SYSTEM (A4 PDF EXPORT)      */
+/* PRINT STYLING FOR QUOTATION SYSTEM (A4 1 PAGE ONLY)      */
 /* ======================================================== */
 @media print {
   @page {
     size: A4 portrait;
-    margin: 1cm;
+    margin: 0; /* ซ่อนหัวเว็บ URL วันที่ และเลขหน้าของ Browser */
   }
 
-  body {
+  html, body {
     background: #ffffff !important;
     color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    overflow: hidden !important;
   }
 
-  header, nav, .print\:hidden {
+  header, nav, aside, .print\:hidden {
     display: none !important;
   }
 
   #quotation-print-area {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-height: auto !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
     margin: 0 auto !important;
-    padding: 0 !important;
+    padding: 10mm 12mm !important;
     box-shadow: none !important;
     border: none !important;
-    background: transparent !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
   }
 }
